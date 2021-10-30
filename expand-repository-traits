@@ -1,0 +1,42 @@
+#!/bin/sh
+
+if [ "$#" -ne 2 ]; then
+  echo "expected a path to entities directory as first argument and repository adaptor ident as second argument"
+  exit 1
+fi
+
+pwd="$PWD/$1"
+adaptor="$2"
+
+tmp_dir_name=$(mktemp -d)
+
+trap cleanup SIGINT EXIT
+
+cleanup() {
+  cd "$pwd" && rm -rf "$tmp_dir_name"
+}
+
+expand() {
+  cp -a "$pwd/." "$tmp_dir_name/"
+  cd "$tmp_dir_name"
+
+  hex_arch_path=$(echo "$pwd/$(dasel select -f Cargo.toml -s dependencies.hex_arch.path)" | sed 's/\//\\\//g')
+
+  sed -i "" 's/^name = ".*/name = "tmp_repositories_expansion"/g' Cargo.toml
+  sed -i "" "s/^hex_arch = .*/hex_arch = { path = \"$hex_arch_path\", features = [\"repositories\"] }/g" Cargo.toml
+
+  sed -i "" 's/repositories!/print_repositories!/g' src/lib.rs
+
+  expanded=$(cargo expand 2>/dev/null)
+  start_line=$(echo "$expanded" | grep -n "pub trait BaseRepository" | cut -f1 -d:)
+  traits=$(echo "$expanded" | sed -n "$start_line"',$p')
+  echo "$traits" |
+    sed "s/pub trait BaseRepository: Clone + Sized/impl BaseRepository for $adaptor/" |
+    sed -E 's/fn (.*) -> Self::Error;/fn \1 -> Self::Error { todo!() }/g' |
+    sed -E "s/pub trait ([A-z0-9_]+): BaseRepository/impl \1 for $adaptor/g" |
+    sed 's/::core::panicking::panic("not yet implemented")/todo!()/g' |
+    sed 's/fn/\n    fn/g' |
+    sed 's/impl/\nimpl/g'
+}
+
+expand
