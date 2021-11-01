@@ -48,10 +48,10 @@ macro_rules! repositories {
             $(
                 $entity:ident $mutability:ident {
                     $(
-                        $singular_foreign_field_name:ident: ($related_entity_name:ident, $relation_cardinality:ident),
-                    )*
-                },
-            )*
+                        $singular_foreign_field_name:ident: ($related_entity_name:ident, $relation_cardinality:ident)
+                    ),*$(,)?
+                }
+            ),*$(,)?
         }
     ) => {
         repositories_paste! {
@@ -105,10 +105,10 @@ macro_rules! print_repositories {
             $(
                 $entity:ident $mutability:ident {
                     $(
-                        $singular_foreign_field_name:ident: ($related_entity_name:ident, $relation_cardinality:ident),
-                    )*
-                },
-            )*
+                        $singular_foreign_field_name:ident: ($related_entity_name:ident, $relation_cardinality:ident)
+                    ),*$(,)?
+                }
+            ),*$(,)?
         }
     ) => {
         repositories_paste! {

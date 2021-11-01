@@ -902,6 +902,10 @@ fn collect_proc_variables(item: TokenStream) -> ProcVariables {
         let mut sub_get_by_multiple_ids_fn_defs: Vec<TokenStream2> = Vec::with_capacity(num_relations);
 
         for relation_name in relation_names[i].iter() {
+            if !relation_maps.contains_key(relation_name) {
+                panic!("found entity {relation_name} as a relation to {name} but not as an entity itself", relation_name = relation_name, name = name);
+            }
+
             let relation_singular_snake_name = &relation_map[relation_name].0;
             let relation_cardinality = &relation_map[relation_name].1;
 
@@ -939,6 +943,14 @@ fn collect_proc_variables(item: TokenStream) -> ProcVariables {
         for relation_name in relation_names[i].iter() {
             let relation_singular_snake_name = &relation_map[relation_name].0;
 
+            if !relation_maps[relation_name].1.contains_key(name) {
+                panic!(
+                    "relations must be encoded symetrically; found relation {name} -({relation_cardinality:?})-> {relation_name}, so expected a relation of the form {relation_name} -(?)-> {name} but none was found",
+                    name = name,
+                    relation_name = relation_name,
+                    relation_cardinality = relation_maps[name].1[relation_name].1,
+                );
+            }
             let load_ops_by = get_load_ops_by(LoadOpsByConfig {
                 name: &name,
                 snake_name: &snake_name,
@@ -1645,7 +1657,7 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
                             Adaptor::[<insert_ #snake_write_names s>](vec![adaptor_post], client)?.pop().unwrap()
                         };
                         let _read_lock = Adaptor::read()?;
-                        self.adaptor.[<get_ #snake_names>](adaptor_record, &self.load_relations, client)
+                        self.adaptor.[<get_ #snake_write_names>](adaptor_record, &self.load_relations, client)
                     }
                 }
 
@@ -1657,7 +1669,7 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
                             Adaptor::[<insert_ #snake_write_names s>](adaptor_posts, client)?
                         };
                         let _read_lock = Adaptor::read()?;
-                        self.adaptor.[<get_ #snake_names s>](adaptor_records, &self.load_relations, client)
+                        self.adaptor.[<get_ #snake_write_names s>](adaptor_records, &self.load_relations, client)
                     }
                 }
 

@@ -20,10 +20,7 @@ expand() {
   cp -a "$pwd/." "$tmp_dir_name/"
   cd "$tmp_dir_name"
 
-  hex_arch_path=$(echo "$pwd/$(dasel select -f Cargo.toml -s dependencies.hex_arch.path)" | sed 's/\//\\\//g')
-
   sed -i "" 's/^name = ".*/name = "tmp_repositories_expansion"/g' Cargo.toml
-  sed -i "" "s/^hex_arch = .*/hex_arch = { path = \"$hex_arch_path\", features = [\"repositories\"] }/g" Cargo.toml
 
   sed -i "" 's/repositories!/print_repositories!/g' src/lib.rs
 
