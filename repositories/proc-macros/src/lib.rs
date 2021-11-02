@@ -3,12 +3,11 @@ extern crate proc_macro;
 #[macro_use] extern crate quote;
 
 use convert_case::{Case, Casing};
-use itertools::Itertools;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use std::collections::HashMap;
-use syn::{braced, Field, Ident, parse_macro_input, token, Token};
-use syn::parse::{Parse, ParseStream, Parser};
+use syn::{braced, Field, Ident, parenthesized, parse_macro_input, token, Token, Type};
+use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 
 #[derive(Clone, Debug)]
@@ -19,14 +18,14 @@ enum Cardinality {
     Many,
 }
 
-impl From<String> for Cardinality {
-    fn from(string: String) -> Cardinality {
-        match &*string {
+impl From<&Ident> for Cardinality {
+    fn from(ident: &Ident) -> Cardinality {
+        match &*format!("{}", ident) {
             "One" => Cardinality::One,
             "OneOrNone" => Cardinality::OneOrNone,
             "AtLeastOne" => Cardinality::AtLeastOne,
             "Many" => Cardinality::Many,
-            e => panic!("unrecognized relation cardinality: expected one of {{One, OneOrNone, Many, AtLeastOne}}, received {}", e),
+            other => panic!("unrecognized relation cardinality: expected one of {{One, OneOrNone, Many, AtLeastOne}}, received {}", other),
         }
     }
 }
@@ -43,7 +42,33 @@ impl From<&Ident> for Mutability {
         match &*string {
             "R" => Mutability::R,
             "RW" => Mutability::RW,
-            e => panic!("unrecognized mutability: expected one of {{R, RW}}, received {}", e),
+            other => panic!("unrecognized mutability: expected one of {{R, RW}}, received {}", other),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum Syncability {
+    Sync,
+    Unsync,
+}
+
+impl From<&Ident> for Syncability {
+    fn from(ident: &Ident) -> Syncability {
+        let string = format!("{}", ident);
+        match &*string {
+            "sync" => Syncability::Sync,
+            "unsync" => Syncability::Unsync,
+            other => panic!("unrecognized syncability: expected one of {{sync, unsync}}, received {}", other),
+        }
+    }
+}
+
+impl Syncability {
+    fn entity_value_pointer(&self) -> TokenStream2 {
+        match &self {
+            Syncability::Sync => "std::sync::Arc".parse().unwrap(),
+            Syncability::Unsync => "std::rc::Rc".parse().unwrap(),
         }
     }
 }
@@ -425,7 +450,7 @@ fn get_load_ops_by(config: LoadOpsByConfig<'_>) -> LoadOpsBy {
                         return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found());
                     }
 
-                    let (adaptor_records, indices_of_existing_records) = transpose_2::<<Self as [<#name BaseRepository>]>::Record, usize>(
+                    let (adaptor_records, indices_of_existing_records) = repositories_transpose_2::<<Self as [<#name BaseRepository>]>::Record, usize>(
                         adaptor_record_options
                             .into_iter()
                             .enumerate()
@@ -559,7 +584,7 @@ fn get_load_ops_by(config: LoadOpsByConfig<'_>) -> LoadOpsBy {
                 {
                     let adaptor_records_and_parent_ids = Self::#load_by_multiple_ids_fn_name([<#relation_singular_snake_name _ids>].clone(), client)?;
 
-                    let (adaptor_records, parent_ids) = transpose_2(adaptor_records_and_parent_ids);
+                    let (adaptor_records, parent_ids) = repositories_transpose_2(adaptor_records_and_parent_ids);
                     let rc_records = self.[<store_ #snake_name s>](adaptor_records.iter().collect());
                     let rc_records_adaptor_records_and_parent_ids: Vec<_> = repositories_izip!(
                         rc_records.into_iter(),
@@ -711,7 +736,7 @@ fn get_load_ops_by(config: LoadOpsByConfig<'_>) -> LoadOpsBy {
                         return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found());
                     }
 
-                    let (adaptor_records, parent_ids) = transpose_2(adaptor_records_and_parent_ids);
+                    let (adaptor_records, parent_ids) = repositories_transpose_2(adaptor_records_and_parent_ids);
                     let rc_records = self.[<store_ #snake_name s>](adaptor_records.iter().collect());
                     let rc_records_adaptor_records_and_parent_ids: Vec<_> = repositories_izip!(
                         rc_records.into_iter(),
@@ -797,10 +822,11 @@ fn get_relation_type(relation_cardinality: &Cardinality, relation_name: &Ident, 
     }
 }
 
-struct ProcVariables {
+#[derive(Clone, Debug)]
+struct RepositoriesVariables {
     names: Vec<Ident>,
     snake_names: Vec<Ident>,
-    id_types: Vec<Ident>,
+    id_types: Vec<TokenStream2>,
     relation_names: Vec<Vec<Ident>>,
     relation_snake_names: Vec<Vec<Ident>>,
     relation_types: Vec<Vec<TokenStream2>>,
@@ -816,225 +842,240 @@ struct ProcVariables {
     entity_value_pointer: TokenStream2,
 }
 
-fn collect_proc_variables(item: TokenStream) -> ProcVariables {
-    let mut all_args: Vec<TokenStream2> = format!("{}", item).split("|").map(|arg| arg.parse().unwrap()).collect();
-    let entity_value_pointer = match &*format!("{}", all_args.remove(0)) {
-        "sync" => "std::sync::Arc".parse().unwrap(),
-        "unsync" => "std::rc::Rc".parse().unwrap(),
-        unexpected_value => panic!("unexpected syncability value: {}, expected one of {{sync,unsync}}", unexpected_value),
-    };
-
-    let mut names: Vec<Ident> = Vec::with_capacity(all_args.len());
-    let mut snake_names: Vec<Ident> = Vec::with_capacity(all_args.len());
-    let mut id_types: Vec<Ident> = Vec::with_capacity(all_args.len());
-    let mut relation_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
-    let mut relation_snake_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
-    let mut relation_singular_snake_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
-    let mut relation_types: Vec<Vec<TokenStream2>> = Vec::with_capacity(all_args.len());
-    let mut from_relation_record_trait_bounds: Vec<Vec<TokenStream2>> = Vec::with_capacity(all_args.len());
-
-    let mut load_ops_in_single: Vec<Vec<TokenStream2>> = Vec::with_capacity(all_args.len());
-    let mut load_ops_in_multiple: Vec<Vec<TokenStream2>> = Vec::with_capacity(all_args.len());
-
-    let mut load_by_multiple_ids_fn_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
-    let mut get_by_single_id_fn_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
-    let mut get_by_multiple_ids_fn_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
-
-    let mut load_by_multiple_ids_fn_defs: Vec<Vec<TokenStream2>> = Vec::with_capacity(all_args.len());
-    let mut load_by_multiple_ids_fn_defs_with_todos: Vec<Vec<TokenStream2>> = Vec::with_capacity(all_args.len());
-
-    let mut get_by_single_id_fn_defs: Vec<Vec<TokenStream2>> = Vec::with_capacity(all_args.len());
-    let mut get_by_multiple_ids_fn_defs: Vec<Vec<TokenStream2>> = Vec::with_capacity(all_args.len());
-
-    let mut relation_maps: HashMap<Ident, (Ident, HashMap<Ident, (Ident, Cardinality)>)> = HashMap::with_capacity(all_args.len());
-
-    let mut write_names: Vec<Ident> = Vec::default();
-    let mut snake_write_names: Vec<Ident> = Vec::default();
-
-    for args in all_args.into_iter() {
-        let tokens = args.into();
-        let parser = Punctuated::<Ident, Token![,]>::parse_terminated;
-        let args = parser.parse(tokens).unwrap();
-
-        let mut args_iter = args.into_iter();
-        let name = args_iter.next().unwrap();
-        let snake_name = format_ident!("{}", format!("{}", name).to_case(Case::Snake));
-
-        if let Mutability::RW = Mutability::from(&args_iter.next().unwrap()) {
-            write_names.push(name.clone());
-            snake_write_names.push(snake_name.clone());
+impl Default for RepositoriesVariables {
+    fn default() -> Self {
+        RepositoriesVariables {
+            names: vec![],
+            snake_names: vec![],
+            id_types: vec![],
+            relation_names: vec![],
+            relation_snake_names: vec![],
+            relation_types: vec![],
+            load_ops_in_single: vec![],
+            load_ops_in_multiple: vec![],
+            load_by_multiple_ids_fn_defs: vec![],
+            load_by_multiple_ids_fn_defs_with_todos: vec![],
+            get_by_single_id_fn_defs: vec![],
+            get_by_multiple_ids_fn_defs: vec![],
+            from_relation_record_trait_bound: quote! {},
+            write_names: vec![],
+            snake_write_names: vec![],
+            entity_value_pointer: quote! {},
         }
-
-        id_types.push(args_iter.next().unwrap());
-
-        let num_relations = args_iter.len() / 3;
-
-        let mut sub_relation_names: Vec<Ident> = Vec::with_capacity(num_relations);
-        let mut sub_relation_singular_snake_names: Vec<Ident> = Vec::with_capacity(num_relations);
-        relation_maps.insert(name.clone(), (snake_name.clone(), HashMap::with_capacity(num_relations)));
-
-        for chunk_iter in args_iter.chunks(3).into_iter() {
-            let mut chunk: Vec<_> = chunk_iter.collect();
-            let (relation_singular_snake_name, relation_name, relation_cardinality) = (chunk.remove(0), chunk.remove(0), chunk.remove(0));
-            sub_relation_names.push(relation_name.clone());
-            sub_relation_singular_snake_names.push(relation_singular_snake_name.clone());
-
-            let relation_cardinality = Cardinality::from(format!("{}", relation_cardinality));
-            relation_maps.get_mut(&name).unwrap().1.insert(relation_name, (relation_singular_snake_name, relation_cardinality));
-        }
-        names.push(name);
-        snake_names.push(snake_name);
-        relation_names.push(sub_relation_names);
-        relation_singular_snake_names.push(sub_relation_singular_snake_names);
-    }
-
-    for (i, name) in names.iter().enumerate() {
-        let snake_name = &relation_maps[name].0;
-        let relation_map = &relation_maps[name].1;
-
-        let num_relations = relation_map.len();
-
-        let mut sub_relation_snake_names: Vec<Ident> = Vec::with_capacity(num_relations);
-        let mut sub_relation_types: Vec<TokenStream2> = Vec::with_capacity(num_relations);
-        let mut sub_from_relation_record_trait_bounds: Vec<TokenStream2> = Vec::with_capacity(num_relations);
-
-        let mut sub_load_ops_in_single: Vec<TokenStream2> = Vec::with_capacity(num_relations);
-        let mut sub_load_ops_in_multiple: Vec<TokenStream2> = Vec::with_capacity(num_relations);
-
-        let mut sub_load_by_multiple_ids_fn_names: Vec<Ident> = Vec::with_capacity(num_relations);
-        let mut sub_get_by_single_id_fn_names: Vec<Ident> = Vec::with_capacity(num_relations);
-        let mut sub_get_by_multiple_ids_fn_names: Vec<Ident> = Vec::with_capacity(num_relations);
-
-        let mut sub_load_by_multiple_ids_fn_defs: Vec<TokenStream2> = Vec::with_capacity(num_relations);
-        let mut sub_load_by_multiple_ids_fn_defs_with_todos: Vec<TokenStream2> = Vec::with_capacity(num_relations);
-
-        let mut sub_get_by_single_id_fn_defs: Vec<TokenStream2> = Vec::with_capacity(num_relations);
-        let mut sub_get_by_multiple_ids_fn_defs: Vec<TokenStream2> = Vec::with_capacity(num_relations);
-
-        for relation_name in relation_names[i].iter() {
-            if !relation_maps.contains_key(relation_name) {
-                panic!("found entity {relation_name} as a relation to {name} but not as an entity itself", relation_name = relation_name, name = name);
-            }
-
-            let relation_singular_snake_name = &relation_map[relation_name].0;
-            let relation_cardinality = &relation_map[relation_name].1;
-
-            let relation_snake_name = get_relation_snake_name(&relation_cardinality, &relation_singular_snake_name);
-            let relation_type = get_relation_type(&relation_cardinality, &relation_name, &entity_value_pointer);
-
-            let load_ops = get_load_ops(LoadOpsConfig {
-                name: &name,
-                snake_name: &snake_name,
-                relation_name: &relation_name,
-                relation_snake_name: &relation_snake_name,
-                relation_singular_snake_name: &relation_singular_snake_name,
-                relation_cardinality: &relation_cardinality,
-                entity_value_pointer: &entity_value_pointer,
-            });
-
-            let from_relation_record_trait_bound = format!(
-                "<Adaptor as [<{}BaseRepository>]>::Record: Into<{}>",
-                relation_name,
-                relation_name,
-            ).parse().unwrap();
-
-            sub_relation_snake_names.push(relation_snake_name);
-            sub_relation_types.push(relation_type);
-            sub_from_relation_record_trait_bounds.push(from_relation_record_trait_bound);
-
-            sub_load_ops_in_single.push(load_ops.in_single);
-            sub_load_ops_in_multiple.push(load_ops.in_multiple);
-
-            sub_load_by_multiple_ids_fn_names.push(get_op_by_multiple_ids_fn_name("load", relation_cardinality, snake_name, relation_singular_snake_name));
-            sub_get_by_single_id_fn_names.push(get_op_by_single_id_fn_name("get", relation_cardinality, snake_name, relation_singular_snake_name));
-            sub_get_by_multiple_ids_fn_names.push(get_op_by_multiple_ids_fn_name("get", relation_cardinality, snake_name, relation_singular_snake_name));
-        }
-
-        for relation_name in relation_names[i].iter() {
-            let relation_singular_snake_name = &relation_map[relation_name].0;
-
-            if !relation_maps[relation_name].1.contains_key(name) {
-                panic!(
-                    "relations must be encoded symetrically; found relation {name} -({relation_cardinality:?})-> {relation_name}, so expected a relation of the form {relation_name} -(?)-> {name} but none was found",
-                    name = name,
-                    relation_name = relation_name,
-                    relation_cardinality = relation_maps[name].1[relation_name].1,
-                );
-            }
-            let load_ops_by = get_load_ops_by(LoadOpsByConfig {
-                name: &name,
-                snake_name: &snake_name,
-                relation_name: &relation_name,
-                relation_singular_snake_name: &relation_singular_snake_name,
-                relation_cardinality: &relation_maps[relation_name].1[name].1,
-                all_relation_snake_names: &sub_relation_snake_names,
-                all_load_ops_in_single: &sub_load_ops_in_single,
-                all_load_ops_in_multiple: &sub_load_ops_in_multiple,
-                entity_value_pointer: &entity_value_pointer,
-            });
-
-            sub_load_by_multiple_ids_fn_defs.push(load_ops_by.load_by_multiple_ids_fn_def);
-            sub_load_by_multiple_ids_fn_defs_with_todos.push(load_ops_by.load_by_multiple_ids_fn_def_with_todo);
-
-            sub_get_by_single_id_fn_defs.push(load_ops_by.get_by_single_id_fn_def);
-            sub_get_by_multiple_ids_fn_defs.push(load_ops_by.get_by_multiple_ids_fn_def);
-        }
-
-        relation_snake_names.push(sub_relation_snake_names);
-        relation_types.push(sub_relation_types);
-        from_relation_record_trait_bounds.push(sub_from_relation_record_trait_bounds);
-
-        load_ops_in_single.push(sub_load_ops_in_single);
-        load_ops_in_multiple.push(sub_load_ops_in_multiple);
-
-        load_by_multiple_ids_fn_names.push(sub_load_by_multiple_ids_fn_names);
-        get_by_single_id_fn_names.push(sub_get_by_single_id_fn_names);
-        get_by_multiple_ids_fn_names.push(sub_get_by_multiple_ids_fn_names);
-
-        load_by_multiple_ids_fn_defs.push(sub_load_by_multiple_ids_fn_defs);
-        load_by_multiple_ids_fn_defs_with_todos.push(sub_load_by_multiple_ids_fn_defs_with_todos);
-
-        get_by_single_id_fn_defs.push(sub_get_by_single_id_fn_defs);
-        get_by_multiple_ids_fn_defs.push(sub_get_by_multiple_ids_fn_defs);
-    }
-
-    let from_relation_record_trait_bound: TokenStream2 = from_relation_record_trait_bounds
-        .into_iter()
-        .map(|from_relation_record_trait_bounds|
-            from_relation_record_trait_bounds
-                .into_iter()
-                .map(|from_relation_record_trait_bound| format!("{}", from_relation_record_trait_bound))
-                .collect::<Vec<String>>()
-                .join(",")
-        )
-        .collect::<Vec<String>>()
-        .join(",")
-        .parse()
-        .unwrap();
-
-    ProcVariables {
-        names,
-        snake_names,
-        id_types,
-        relation_names,
-        relation_snake_names,
-        relation_types,
-        load_ops_in_single,
-        load_ops_in_multiple,
-        load_by_multiple_ids_fn_defs,
-        load_by_multiple_ids_fn_defs_with_todos,
-        get_by_single_id_fn_defs,
-        get_by_multiple_ids_fn_defs,
-        from_relation_record_trait_bound,
-        write_names,
-        snake_write_names,
-        entity_value_pointer,
     }
 }
 
+
+struct RepositoriesInput {
+    syncability: Syncability,
+    _brace: token::Brace,
+    repository_inputs: Punctuated<RepositoryInput, Token![,]>,
+}
+
+impl Parse for RepositoriesInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let in_braces;
+        Ok(RepositoriesInput {
+            syncability: Syncability::from(&input.parse()?),
+            _brace: braced!(in_braces in input),
+            repository_inputs: in_braces.parse_terminated(RepositoryInput::parse)?,
+        })
+    }
+}
+
+struct RepositoryInput {
+    entity: Ident,
+    mutability: Mutability,
+    _paren: token::Paren,
+    id_type: Type,
+    _brace: token::Brace,
+    repository_relation_inputs: Punctuated<RepositoryRelationInput, Token![,]>,
+}
+
+impl Parse for RepositoryInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let in_parens;
+        let in_braces;
+        Ok(RepositoryInput {
+            entity: input.parse()?,
+            mutability: Mutability::from(&input.parse()?),
+            _paren: parenthesized!(in_parens in input),
+            id_type: in_parens.parse()?,
+            _brace: braced!(in_braces in input),
+            repository_relation_inputs: in_braces.parse_terminated(RepositoryRelationInput::parse)?,
+        })
+    }
+}
+
+struct RepositoryRelationInput {
+    snake_singular_related_entity_name: Ident,
+    _colon: Token![:],
+    _paren: token::Paren,
+    related_entity_name: Ident,
+    _comma: Token![,],
+    relation_cardinality: Cardinality,
+}
+
+impl Parse for RepositoryRelationInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let in_parens;
+        Ok(RepositoryRelationInput {
+            snake_singular_related_entity_name: input.parse()?,
+            _colon: input.parse()?,
+            _paren: parenthesized!(in_parens in input),
+            related_entity_name: in_parens.parse()?,
+            _comma: in_parens.parse()?,
+            relation_cardinality: Cardinality::from(&in_parens.parse()?),
+        })
+    }
+}
+
+macro_rules! collect_repository_variables {
+    ($item: ident) => {
+        {
+            let repositories_input = parse_macro_input!($item as RepositoriesInput);
+
+            let mut vars = RepositoriesVariables::default();
+
+            let mut relation_maps: HashMap<Ident, (Ident, HashMap<Ident, (Ident, Cardinality)>)> = HashMap::default();
+            let mut from_relation_record_trait_bounds: Vec<Vec<TokenStream2>> = vec![];
+
+            vars.entity_value_pointer = repositories_input.syncability.entity_value_pointer();
+
+            for (i, repository_input) in repositories_input.repository_inputs.into_iter().enumerate() {
+                let name = repository_input.entity;
+                let snake_name = format_ident!("{}", format!("{}", name).to_case(Case::Snake));
+
+                if let Mutability::RW = repository_input.mutability {
+                    vars.write_names.push(name.clone());
+                    vars.snake_write_names.push(snake_name.clone());
+                }
+
+                let id_type = repository_input.id_type;
+                vars.id_types.push(quote! { #id_type });
+
+                relation_maps.insert(name.clone(), (snake_name.clone(), HashMap::default()));
+                vars.relation_names.push(vec![]);
+                vars.relation_snake_names.push(vec![]);
+
+                for repository_relation_input in repository_input.repository_relation_inputs {
+                    relation_maps.get_mut(&name).unwrap().1.insert(
+                        repository_relation_input.related_entity_name.clone(),
+                        (
+                            repository_relation_input.snake_singular_related_entity_name.clone(),
+                            repository_relation_input.relation_cardinality,
+                        ),
+                    );
+                    vars.relation_names[i].push(repository_relation_input.related_entity_name);
+                }
+
+                vars.names.push(name);
+                vars.snake_names.push(snake_name);
+            }
+
+            for (i, name) in vars.names.iter().enumerate() {
+                let snake_name = &relation_maps[name].0;
+                let relation_map = &relation_maps[name].1;
+
+                vars.relation_snake_names.push(vec![]);
+                vars.relation_types.push(vec![]);
+                vars.load_ops_in_single.push(vec![]);
+                vars.load_ops_in_multiple.push(vec![]);
+                vars.load_by_multiple_ids_fn_defs.push(vec![]);
+                vars.load_by_multiple_ids_fn_defs_with_todos.push(vec![]);
+                vars.get_by_single_id_fn_defs.push(vec![]);
+                vars.get_by_multiple_ids_fn_defs.push(vec![]);
+
+                from_relation_record_trait_bounds.push(vec![]);
+
+                for relation_name in vars.relation_names[i].iter() {
+                    if !relation_maps.contains_key(relation_name) {
+                        panic!("found entity {relation_name} as a relation to {name} but not as an entity itself", relation_name = relation_name, name = name);
+                    }
+
+                    let relation_singular_snake_name = &relation_map[relation_name].0;
+                    let relation_cardinality = &relation_map[relation_name].1;
+
+                    let relation_snake_name = get_relation_snake_name(&relation_cardinality, &relation_singular_snake_name);
+                    let relation_type = get_relation_type(&relation_cardinality, &relation_name, &vars.entity_value_pointer);
+
+                    let load_ops = get_load_ops(LoadOpsConfig {
+                        name: &name,
+                        snake_name: &snake_name,
+                        relation_name: &relation_name,
+                        relation_snake_name: &relation_snake_name,
+                        relation_singular_snake_name: &relation_singular_snake_name,
+                        relation_cardinality: &relation_cardinality,
+                        entity_value_pointer: &vars.entity_value_pointer,
+                    });
+
+                    let from_relation_record_trait_bound = format!(
+                        "<Adaptor as [<{}BaseRepository>]>::Record: Into<{}>",
+                        relation_name,
+                        relation_name,
+                    ).parse().unwrap();
+
+                    vars.relation_snake_names[i].push(relation_snake_name);
+                    vars.relation_types[i].push(relation_type);
+
+                    vars.load_ops_in_single[i].push(load_ops.in_single);
+                    vars.load_ops_in_multiple[i].push(load_ops.in_multiple);
+
+                    from_relation_record_trait_bounds[i].push(from_relation_record_trait_bound);
+                }
+
+                for relation_name in vars.relation_names[i].iter() {
+                    let relation_singular_snake_name = &relation_map[relation_name].0;
+
+                    if !relation_maps[relation_name].1.contains_key(name) {
+                        panic!(
+                            "relations must be encoded symetrically; found relation {name} -({relation_cardinality:?})-> {relation_name}, so expected a relation of the form {relation_name} -(?)-> {name} but none was found",
+                            name = name,
+                            relation_name = relation_name,
+                            relation_cardinality = relation_maps[name].1[relation_name].1,
+                        );
+                    }
+                    let load_ops_by = get_load_ops_by(LoadOpsByConfig {
+                        name: &name,
+                        snake_name: &snake_name,
+                        relation_name: &relation_name,
+                        relation_singular_snake_name: &relation_singular_snake_name,
+                        relation_cardinality: &relation_maps[relation_name].1[name].1,
+                        all_relation_snake_names: &vars.relation_snake_names[i],
+                        all_load_ops_in_single: &vars.load_ops_in_single[i],
+                        all_load_ops_in_multiple: &vars.load_ops_in_multiple[i],
+                        entity_value_pointer: &vars.entity_value_pointer,
+                    });
+
+                    vars.load_by_multiple_ids_fn_defs[i].push(load_ops_by.load_by_multiple_ids_fn_def);
+                    vars.load_by_multiple_ids_fn_defs_with_todos[i].push(load_ops_by.load_by_multiple_ids_fn_def_with_todo);
+                    vars.get_by_single_id_fn_defs[i].push(load_ops_by.get_by_single_id_fn_def);
+                    vars.get_by_multiple_ids_fn_defs[i].push(load_ops_by.get_by_multiple_ids_fn_def);
+                }
+            }
+
+            vars.from_relation_record_trait_bound = from_relation_record_trait_bounds
+                .into_iter()
+                .map(|from_relation_record_trait_bounds|
+                    from_relation_record_trait_bounds
+                        .into_iter()
+                        .map(|from_relation_record_trait_bound| format!("{}", from_relation_record_trait_bound))
+                        .collect::<Vec<String>>()
+                        .join(",")
+                )
+                .collect::<Vec<String>>()
+                .join(",")
+                .parse()
+                .unwrap();
+
+            vars
+        }
+    };
+}
+
 #[proc_macro]
-pub fn proc_repositories(item: TokenStream) -> TokenStream  {
-    let ProcVariables {
+pub fn repositories(item: TokenStream) -> TokenStream  {
+    let RepositoriesVariables {
         names,
         snake_names,
         id_types,
@@ -1051,7 +1092,7 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
         snake_write_names,
         entity_value_pointer,
         ..
-    } = collect_proc_variables(item);
+    } = collect_repository_variables!(item);
 
     let expr = quote! {
         repositories_paste! {
@@ -1318,7 +1359,7 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
                     where
                         Self: ReadRepository
                     {
-                        let (adaptor_records, indices_of_existing_records) = transpose_2::<<Self as [<#names BaseRepository>]>::Record, usize>(
+                        let (adaptor_records, indices_of_existing_records) = repositories_transpose_2::<<Self as [<#names BaseRepository>]>::Record, usize>(
                             adaptor_record_options
                                 .into_iter()
                                 .enumerate()
@@ -1766,8 +1807,8 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
 }
 
 #[proc_macro]
-pub fn proc_print_repositories(item: TokenStream) -> TokenStream {
-    let ProcVariables {
+pub fn print_repositories(item: TokenStream) -> TokenStream {
+    let RepositoriesVariables {
         names,
         snake_names,
         id_types,
@@ -1776,7 +1817,7 @@ pub fn proc_print_repositories(item: TokenStream) -> TokenStream {
         snake_write_names,
         entity_value_pointer,
         ..
-    } = collect_proc_variables(item);
+    } = collect_repository_variables!(item);
 
     let expr = quote! {
         repositories_paste! {
