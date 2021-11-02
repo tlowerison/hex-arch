@@ -23,6 +23,7 @@ expand() {
   sed -i "" 's/^name = ".*/name = "tmp_repositories_expansion"/g' Cargo.toml
 
   sed -i "" 's/repositories!/print_repositories!/g' src/lib.rs
+  sed -i "" 's/load_by!/print_load_by!/g' src/lib.rs
 
   expanded=$(cargo expand 2>/dev/null)
   start_line=$(echo "$expanded" | grep -n "pub trait BaseRepository" | cut -f1 -d:)

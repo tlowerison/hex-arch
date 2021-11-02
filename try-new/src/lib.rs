@@ -60,7 +60,7 @@ pub fn derive_try_new(item: TokenStream) -> TokenStream {
                 .collect(),
             syn::Fields::Unit => vec![],
         },
-        _ => panic!("Getters can only be derived on struct data types at this time."),
+        _ => panic!("TryNew can only be derived on struct data types at this time."),
     };
 
     let (signature_field_names, signature_field_types) = transpose_2(field_name_type_and_inclusion_in_signatures

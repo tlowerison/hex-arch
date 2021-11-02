@@ -46,7 +46,7 @@ macro_rules! repositories {
     (
         sync {
             $(
-                $entity:ident $mutability:ident {
+                $entity:ident $mutability:ident ($id_type:ty) {
                     $(
                         $singular_foreign_field_name:ident: ($related_entity_name:ident, $relation_cardinality:ident)
                     ),*$(,)?
@@ -60,6 +60,7 @@ macro_rules! repositories {
                 $(
                     $entity,
                     $mutability,
+                    $id_type,
                     $(
                         $singular_foreign_field_name,
                         $related_entity_name,
@@ -73,7 +74,7 @@ macro_rules! repositories {
     (
         unsync {
             $(
-                $entity:ident $mutability:ident {
+                $entity:ident $mutability:ident ($id_type:ty) {
                     $(
                         $singular_foreign_field_name:ident: ($related_entity_name:ident, $relation_cardinality:ident),
                     )*
@@ -87,6 +88,7 @@ macro_rules! repositories {
                 $(
                     $entity,
                     $mutability,
+                    $id_type,
                     $(
                         $singular_foreign_field_name,
                         $related_entity_name,
@@ -103,7 +105,7 @@ macro_rules! print_repositories {
     (
         sync {
             $(
-                $entity:ident $mutability:ident {
+                $entity:ident $mutability:ident ($id_type:ty) {
                     $(
                         $singular_foreign_field_name:ident: ($related_entity_name:ident, $relation_cardinality:ident)
                     ),*$(,)?
@@ -117,6 +119,7 @@ macro_rules! print_repositories {
                 $(
                     $entity,
                     $mutability,
+                    $id_type,
                     $(
                         $singular_foreign_field_name,
                         $related_entity_name,
@@ -130,7 +133,7 @@ macro_rules! print_repositories {
     (
         unsync {
             $(
-                $entity:ident $mutability:ident {
+                $entity:ident $mutability:ident ($id_type:ty) {
                     $(
                         $singular_foreign_field_name:ident: ($related_entity_name:ident, $relation_cardinality:ident),
                     )*
@@ -144,6 +147,7 @@ macro_rules! print_repositories {
                 $(
                     $entity,
                     $mutability,
+                    $id_type,
                     $(
                         $singular_foreign_field_name,
                         $related_entity_name,

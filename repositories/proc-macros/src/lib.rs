@@ -7,7 +7,9 @@ use itertools::Itertools;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use std::collections::HashMap;
-use syn::{Ident, parse::Parser, punctuated::Punctuated, Token};
+use syn::{braced, Field, Ident, parse_macro_input, token, Token};
+use syn::parse::{Parse, ParseStream, Parser};
+use syn::punctuated::Punctuated;
 
 #[derive(Clone, Debug)]
 enum Cardinality {
@@ -794,6 +796,7 @@ fn get_relation_type(relation_cardinality: &Cardinality, relation_name: &Ident, 
 struct ProcVariables {
     names: Vec<Ident>,
     snake_names: Vec<Ident>,
+    id_types: Vec<Ident>,
     relation_names: Vec<Vec<Ident>>,
     relation_snake_names: Vec<Vec<Ident>>,
     relation_types: Vec<Vec<TokenStream2>>,
@@ -819,6 +822,7 @@ fn collect_proc_variables(item: TokenStream) -> ProcVariables {
 
     let mut names: Vec<Ident> = Vec::with_capacity(all_args.len());
     let mut snake_names: Vec<Ident> = Vec::with_capacity(all_args.len());
+    let mut id_types: Vec<Ident> = Vec::with_capacity(all_args.len());
     let mut relation_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
     let mut relation_snake_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
     let mut relation_singular_snake_names: Vec<Vec<Ident>> = Vec::with_capacity(all_args.len());
@@ -856,6 +860,8 @@ fn collect_proc_variables(item: TokenStream) -> ProcVariables {
             write_names.push(name.clone());
             snake_write_names.push(snake_name.clone());
         }
+
+        id_types.push(args_iter.next().unwrap());
 
         let num_relations = args_iter.len() / 3;
 
@@ -1005,6 +1011,7 @@ fn collect_proc_variables(item: TokenStream) -> ProcVariables {
     ProcVariables {
         names,
         snake_names,
+        id_types,
         relation_names,
         relation_snake_names,
         relation_types,
@@ -1026,6 +1033,7 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
     let ProcVariables {
         names,
         snake_names,
+        id_types,
         relation_names,
         relation_snake_names,
         relation_types,
@@ -1094,7 +1102,7 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
             }
 
             #[derive(Clone, Debug)]
-            pub struct Entity<E: Clone, R: Clone> {
+            pub struct Entity<E, R> {
                 pub value: E,
                 pub relations: R,
             }
@@ -1152,7 +1160,7 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
                 }
 
                 pub trait [<#names BaseRepository>]: BaseRepository {
-                    type Id: Sized + Clone + Eq + std::hash::Hash + 'static;
+                    type Id: Sized + Clone + Eq + From<#id_types> + std::hash::Hash + 'static;
                     type Record: Clone + Sized + AsRef<Self::Id> + Into<Self::Id> + Into<#names> + 'static;
                 }
 
@@ -1599,7 +1607,7 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
                     fn [<update_ #snake_write_names s>](
                         [<#snake_write_names _patches>]: Vec<<Self as [<#write_names WriteRepository>]>::RecordPatch>,
                         client: Self::Client<'_>,
-                    ) -> Result<(), Self::Error>;
+                    ) -> Result<Vec<<Self as [<#write_names BaseRepository>]>::Record>, Self::Error>;
                 }
 
 
@@ -1623,14 +1631,16 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
                     load_relations: [<Load #write_names Relations>],
                 }
 
-                pub struct [<Update #write_names Builder>]<Adaptor: [<#write_names WriteRepository>]> {
-                    _adaptor: std::marker::PhantomData<Adaptor>,
+                pub struct [<Update #write_names Builder>]<Adaptor: [<#write_names WriteRepository>] + ReadRepository> {
+                    adaptor: Adaptor,
                     patch: [<#write_names Patch>],
+                    load_relations: [<Load #write_names Relations>],
                 }
 
-                pub struct [<Update #write_names sBuilder>]<Adaptor: [<#write_names WriteRepository>]> {
-                    _adaptor: std::marker::PhantomData<Adaptor>,
+                pub struct [<Update #write_names sBuilder>]<Adaptor: [<#write_names WriteRepository>] + ReadRepository> {
+                    adaptor: Adaptor,
                     patches: Vec<[<#write_names Patch>]>,
+                    load_relations: [<Load #write_names Relations>],
                 }
 
 
@@ -1674,19 +1684,27 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
                 }
 
 
-                impl<Adaptor: [<#write_names WriteRepository>]> [<Update #write_names Builder>]<Adaptor> {
-                    pub fn run(self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<(), <Adaptor as BaseRepository>::Error> {
-                        let _write_lock = Adaptor::write()?;
-                        let adaptor_patch = <Adaptor as [<#write_names WriteRepository>]>::RecordPatch::from(self.patch);
-                        Adaptor::[<update_ #snake_write_names s>](vec![adaptor_patch], client)
+                impl<Adaptor: [<#write_names WriteRepository>] + ReadRepository> [<Update #write_names Builder>]<Adaptor> {
+                    pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Entity<#entity_value_pointer<#write_names>, [<Loaded #write_names Relations>]>, <Adaptor as BaseRepository>::Error> {
+                        let adaptor_record = {
+                            let _write_lock = Adaptor::write()?;
+                            let adaptor_patch = <Adaptor as [<#write_names WriteRepository>]>::RecordPatch::from(self.patch);
+                            Adaptor::[<update_ #snake_write_names s>](vec![adaptor_patch], client)?.pop().unwrap()
+                        };
+                        let _read_lock = Adaptor::read()?;
+                        self.adaptor.[<get_ #snake_write_names>](adaptor_record, &self.load_relations, client)
                     }
                 }
 
-                impl<Adaptor: [<#write_names WriteRepository>]> [<Update #write_names sBuilder>]<Adaptor> {
-                    pub fn run(self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<(), <Adaptor as BaseRepository>::Error> {
-                        let _write_lock = Adaptor::write()?;
-                        let adaptor_patches = self.patches.into_iter().map(<Adaptor as [<#write_names WriteRepository>]>::RecordPatch::from).collect();
-                        Adaptor::[<update_ #snake_write_names s>](adaptor_patches, client)
+                impl<Adaptor: [<#write_names WriteRepository>] + ReadRepository> [<Update #write_names sBuilder>]<Adaptor> {
+                    pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<Entity<#entity_value_pointer<#write_names>, [<Loaded #write_names Relations>]>>, <Adaptor as BaseRepository>::Error> {
+                        let adaptor_records = {
+                            let _write_lock = Adaptor::write()?;
+                            let adaptor_patches = self.patches.into_iter().map(<Adaptor as [<#write_names WriteRepository>]>::RecordPatch::from).collect();
+                            Adaptor::[<update_ #snake_write_names s>](adaptor_patches, client)?
+                        };
+                        let _read_lock = Adaptor::read()?;
+                        self.adaptor.[<get_ #snake_write_names s>](adaptor_records, &self.load_relations, client)
                     }
                 }
 
@@ -1720,17 +1738,19 @@ pub fn proc_repositories(item: TokenStream) -> TokenStream  {
                         }
                     }
 
-                    pub fn update<Adaptor: [<#write_names WriteRepository>]>(patch: [<#write_names Patch>]) -> [<Update #write_names Builder>]<Adaptor> {
+                    pub fn update<Adaptor: [<#write_names WriteRepository>] + ReadRepository>(patch: [<#write_names Patch>]) -> [<Update #write_names Builder>]<Adaptor> {
                         [<Update #write_names Builder>] {
-                            _adaptor: std::marker::PhantomData,
+                            adaptor: Adaptor::default(),
                             patch,
+                            load_relations: [<Load #write_names Relations>]::default(),
                         }
                     }
 
-                    pub fn update_batch<Adaptor: [<#write_names WriteRepository>]>(patches: Vec<[<#write_names Patch>]>) -> [<Update #write_names sBuilder>]<Adaptor> {
+                    pub fn update_batch<Adaptor: [<#write_names WriteRepository>] + ReadRepository>(patches: Vec<[<#write_names Patch>]>) -> [<Update #write_names sBuilder>]<Adaptor> {
                         [<Update #write_names sBuilder>] {
-                            _adaptor: std::marker::PhantomData,
+                            adaptor: Adaptor::default(),
                             patches,
+                            load_relations: [<Load #write_names Relations>]::default(),
                         }
                     }
                 }
@@ -1746,6 +1766,7 @@ pub fn proc_print_repositories(item: TokenStream) -> TokenStream {
     let ProcVariables {
         names,
         snake_names,
+        id_types,
         load_by_multiple_ids_fn_defs_with_todos,
         write_names,
         snake_write_names,
@@ -1778,7 +1799,7 @@ pub fn proc_print_repositories(item: TokenStream) -> TokenStream {
             }
             #(
                 pub trait [<#names BaseRepository>]: BaseRepository {
-                    type Id: Sized + Clone + Eq + std::hash::Hash;
+                    type Id: Sized + Clone + Eq + From<#id_types> + std::hash::Hash;
                     type Record: Clone + Sized + Into<#names> + AsRef<Self::Id>;
                 }
 
@@ -1822,11 +1843,119 @@ pub fn proc_print_repositories(item: TokenStream) -> TokenStream {
                     fn [<update_ #snake_write_names s>](
                         [<#snake_write_names _patches>]: Vec<<Self as [<#write_names WriteRepository>]>::RecordPatch>,
                         client: Self::Client<'_>,
-                    ) -> Result<(), Self::Error> {
+                    ) -> Result<Vec<<Self as [<#write_names BaseRepository>]>::Record>, Self::Error> {
                         todo!()
                     }
                 }
             )*
+        }
+    };
+
+    expr.into()
+}
+
+struct LoadByInput {
+    name_ident: Ident,
+    snake_name_ident: Ident,
+    _brace_token: token::Brace,
+    fields: Punctuated<Field, Token![,]>,
+}
+
+impl Parse for LoadByInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        Ok(LoadByInput {
+            name_ident: input.parse()?,
+            snake_name_ident: input.parse()?,
+            _brace_token: braced!(content in input),
+            fields: content.parse_terminated(Field::parse_named)?,
+        })
+    }
+}
+
+#[proc_macro]
+pub fn load_by(item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as LoadByInput);
+
+    let name = input.name_ident;
+    let snake_name = input.snake_name_ident;
+
+    let field_names: Vec<_> = input.fields
+        .iter()
+        .map(|field| field.ident.clone().unwrap())
+        .collect();
+
+    let field_types: Vec<_> = input.fields
+        .iter()
+        .map(|field| field.ty.clone())
+        .collect();
+
+    let expr = quote! {
+        repositories_paste! {
+            pub trait [<#name LoadByFieldsRepository>]: [<#name ReadRepository>] {
+                #(
+                    fn [<load_ #snake_name s_by_ #field_names s>]([<#field_names s>]: Vec<#field_types>, client: Self::Client<'_>) -> Result<Vec<<Self as [<#name BaseRepository>]>::Record>, Self::Error>;
+                )*
+            }
+
+            impl #name {
+                #(
+                    pub fn [<get_by_ #field_names>]<Adaptor: [<#name LoadByFieldsRepository>] + ReadRepository>(#field_names: #field_types) -> [<Get #name Builder>]<Adaptor> {
+                        [<Get #name Builder>] {
+                            adaptor: Adaptor::default(),
+                            load_adaptor_record: Box::new(move |client| Ok(
+                                Adaptor::[<load_ #snake_name s_by_ #field_names s>](vec![#field_names], client)?
+                                    .pop()
+                                    .ok_or_else(|| <Adaptor as BaseRepository>::Error::not_found())?
+                            )),
+                            load_relations: [<Load #name Relations>]::default(),
+                        }
+                    }
+
+                    pub fn [<get_batch_by_ #field_names s>]<Adaptor: [<#name LoadByFieldsRepository>] + ReadRepository>([<#field_names s>]: Vec<#field_types>) -> [<Get #name sBuilder>]<Adaptor> {
+                        [<Get #name sBuilder>] {
+                            adaptor: Adaptor::default(),
+                            num_requested_records: [<#field_names s>].len() as isize,
+                            load_adaptor_records: Box::new(move |client| Ok(
+                                Adaptor::[<load_ #snake_name s_by_ #field_names s>]([<#field_names s>], client)?
+                            )),
+                            load_relations: [<Load #name Relations>]::default(),
+                        }
+                    }
+                )*
+            }
+        }
+    };
+
+    expr.into()
+}
+
+#[proc_macro]
+pub fn print_load_by(item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as LoadByInput);
+
+    let name = input.name_ident;
+    let snake_name = input.snake_name_ident;
+
+    let field_names: Vec<_> = input.fields
+        .iter()
+        .map(|field| field.ident.clone().unwrap())
+        .collect();
+
+    let field_types: Vec<_> = input.fields
+        .iter()
+        .map(|field| field.ty.clone())
+        .collect();
+
+    let expr = quote! {
+        repositories_paste! {
+            pub trait [<#name LoadByFieldsRepository>]: [<#name ReadRepository>] {
+                #(
+                    fn [<load_ #snake_name s_by_ #field_names s>]([<#field_names s>]: Vec<#field_types>, client: Self::Client<'_>) -> Result<Vec<<Self as [<#name BaseRepository>]>::Record>, Self::Error> {
+                        todo!()
+                    }
+                )*
+            }
         }
     };
 
