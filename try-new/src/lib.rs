@@ -3,6 +3,7 @@ extern crate proc_macro;
 
 use common::*;
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use syn::{Attribute, PathArguments};
 
 fn is_matching_attr(attr: &Attribute) -> bool {
@@ -81,7 +82,14 @@ pub fn derive_try_new(item: TokenStream) -> TokenStream {
             if *inclusions_in_signature {
                 Some((field_name.clone(), quote! { #field_name }))
             } else {
-                Some((field_name.clone(), quote! { #field_type::default() }))
+                let field_type_str = format!("{}", quote! { #field_type });
+                let field_type_str = field_type_str.trim();
+                let field_type_token_stream: TokenStream2 = if let Some(index) = field_type_str.find("<") {
+                    format!("{}::{}", &field_type_str[..index], &field_type_str[index..]).parse().unwrap()
+                } else {
+                    field_type_str.parse().unwrap()
+                };
+                Some((field_name.clone(), quote! { #field_type_token_stream::default() }))
             }
         )
         .collect()

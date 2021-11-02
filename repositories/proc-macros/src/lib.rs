@@ -131,14 +131,15 @@ fn get_load_ops(config: LoadOpsConfig<'_>) -> LoadOps {
                 }
 
                 for (i, loaded_relations) in all_loaded_relations.iter_mut().enumerate() {
-                    let all_related_entities_by_related_ids = all_related_entities_by_parent_ids.get_mut(&[<#snake_name _ids>][i]).unwrap();
-
-                    let related_entities: Vec<_> = all_related_entities_by_related_ids
-                        .values_mut()
-                        .map(|related_entity_dupes| related_entity_dupes.pop().unwrap())
-                        .collect();
-
-                    loaded_relations.#relation_snake_name = Some(Box::new(related_entities));
+                    loaded_relations.#relation_snake_name = Some(Box::new(match all_related_entities_by_parent_ids.get_mut(&[<#snake_name _ids>][i]) {
+                        Some(all_related_entities_by_related_ids) => {
+                            all_related_entities_by_related_ids
+                                .values_mut()
+                                .map(|related_entity_dupes| related_entity_dupes.pop().unwrap())
+                                .collect()
+                        },
+                        None => vec![],
+                    }));
                 }
             },
         },
@@ -180,18 +181,21 @@ fn get_load_ops(config: LoadOpsConfig<'_>) -> LoadOps {
                 }
 
                 for (i, loaded_relations) in all_loaded_relations.iter_mut().enumerate() {
-                    let all_related_entities_by_related_ids = all_related_entities_by_parent_ids.get_mut(&[<#snake_name _ids>][i]).unwrap();
+                    loaded_relations.#relation_snake_name = Some(Box::new(match all_related_entities_by_parent_ids.get_mut(&[<#snake_name _ids>][i]) {
+                        Some(all_related_entities_by_related_ids) => {
+                            let related_entities: Vec<_> = all_related_entities_by_related_ids
+                                .values_mut()
+                                .map(|related_entity_dupes| related_entity_dupes.pop().unwrap())
+                                .collect();
 
-                    let related_entities: Vec<_> = all_related_entities_by_related_ids
-                        .values_mut()
-                        .map(|related_entity_dupes| related_entity_dupes.pop().unwrap())
-                        .collect();
+                            if related_entities.len() == 0 {
+                                return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found());
+                            }
 
-                    if related_entities.len() == 0 {
-                        return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found());
-                    }
-
-                    loaded_relations.#relation_snake_name = Some(Box::new(related_entities));
+                            related_entities
+                        },
+                        None => return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found()),
+                    }));
                 }
             },
         },
