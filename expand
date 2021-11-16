@@ -1,0 +1,33 @@
+#!/bin/sh
+
+if [ "$#" -lt 2 ]; then
+  echo "expected a path to entities directory as first argument and path to directory for expanded code"
+  exit 1
+fi
+
+pwd="$PWD/$1"; shift
+tmp_dir_name="$1"; shift
+flags="$@"
+
+expand() {
+  cp -a "$pwd/." "$tmp_dir_name/"
+  cd "$tmp_dir_name"
+
+  cargo expand $flags > expanded.rs
+  echo $'
+  #![feature(box_syntax, core_intrinsics, derive_eq, fmt_internals, no_coverage, structural_match)]
+  #![allow(warnings, unused)]
+  ' > src/lib.rs
+  cat expanded.rs >> ./src/lib.rs
+  cat ./src/lib.rs |
+    sed 's/::alloc/std/g' |
+    sed 's/:: alloc/std/g' |
+    sed 's/::itertools::__std_iter::IntoIterator/std::iter::IntoIterator/g' |
+    sed 's/map(|((a, b), b)| (a, b, b))/map(|((a, b), c)| (a, b, c))/g'> expanded.rs
+  cat expanded.rs > ./src/lib.rs
+
+  rm expanded.rs
+  cargo build $flags
+}
+
+expand
