@@ -1680,7 +1680,7 @@ pub (crate) mod shared {
             RelationInput { avenues: (Road, Many) }
             RepositoryInput { Road },
             RepositoryInput { City },
-        ) == "load_city_avenues_by_city"
+        ) == "load_avenues_by_city"
     */
     pub (crate) fn op_by_single_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
         let relation_ty_singular = relation_repository.singular(); // road | city
@@ -1701,13 +1701,12 @@ pub (crate) mod shared {
             RelationInput { avenues: (Road, Many) }
             RepositoryInput { Road },
             RepositoryInput { City },
-        ) == "load_city_avenues_by_cities"
+        ) == "load_avenues_by_cities"
     */
     pub (crate) fn op_by_multiple_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
-        let relation_ty_singular = relation_repository.singular(); // road | city
         let relation_plural = relation.plural(); // cities | avenues
         let relation_ty_plural = relation_repository.plural(); // roads | cities
-        format_ident!("{}_{}_{}_by_{}", op, relation_ty_singular, relation_plural, relation_ty_plural)
+        format_ident!("{}_{}_by_{}", op, relation_plural, relation_ty_plural)
     }
 
     pub (crate) fn load_in_single(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
