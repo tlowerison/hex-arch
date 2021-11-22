@@ -61,3 +61,12 @@ impl From<Many> for Cardinality {
         Cardinality::Many
     }
 }
+
+pub trait Transactional {
+    type AdaptorError;
+
+    fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        F: FnOnce() -> Result<T, E>,
+        E: From<Self::AdaptorError>;
+}
