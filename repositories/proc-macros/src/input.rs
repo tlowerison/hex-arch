@@ -1,6 +1,6 @@
 use convert_case::{Case, Casing};
 use proc_macro2::TokenStream as TokenStream2;
-use syn::{braced, Ident, parenthesized, token::{Brace, Paren}, Token};
+use syn::{braced, Ident, parenthesized, token::Paren, Token, Type};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 
@@ -28,30 +28,60 @@ pub (crate) struct RepositoriesInput {
     pub (crate) repositories: Vec<RepositoryInput>,
 }
 
-pub (crate) struct EntityIdents {
+pub (crate) struct RepositoryIdents {
     pub (crate) ty: Ident,
     pub (crate) singular: Ident,
     pub (crate) plural: Ident,
 }
 
 pub (crate) struct RepositoryInput {
-    pub (crate) idents: EntityIdents,
+    pub (crate) idents: RepositoryIdents,
     pub (crate) id_type: Punctuated<Ident, Token![::]>,
     pub (crate) mutability: Mutability,
+    pub (crate) read_repositories: TokenStream2,
     pub (crate) relations: Vec<RelationInput>,
+    pub (crate) load_bys: Vec<LoadByInput>,
     syncability: Option<Syncability>,
 }
 
-pub (crate) struct RelationEntityIdents {
+pub (crate) struct RelationIdents {
     pub (crate) ty: Ident,
     pub (crate) snake: Ident,
     pub (crate) plural: Ident,
 }
 
 pub (crate) struct RelationInput {
-    pub (crate) idents: RelationEntityIdents,
+    pub (crate) idents: RelationIdents,
     pub (crate) cardinality: Cardinality,
     syncability: Option<Syncability>,
+}
+
+pub (crate) struct LoadByIdents {
+    pub (crate) singular: Ident,
+    pub (crate) plural: Ident,
+}
+
+pub (crate) struct LoadByInput {
+    pub (crate) idents: LoadByIdents,
+    pub (crate) ty: Type,
+    pub (crate) cardinality: Cardinality,
+}
+
+optional_fields! {
+    RepositoryInput {
+        relations!: input -> Vec<RelationInput> {
+            let in_brace;
+            braced!(in_brace in input);
+            let relations: Punctuated<RelationInput, Token![,]> = in_brace.parse_terminated(RelationInput::parse)?;
+            relations.into_iter().collect()
+        },
+        load_by?: input -> Vec<LoadByInput> {
+            let in_brace;
+            braced!(in_brace in input);
+            let load_bys: Punctuated<LoadByInput, Token![,]> = in_brace.parse_terminated(LoadByInput::parse)?;
+            load_bys.into_iter().collect()
+        },
+    }
 }
 
 
@@ -80,12 +110,13 @@ impl From<&Ident> for Mutability {
 
 impl Parse for RepositoriesInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let in_braces;
+        let in_brace;
 
         let syncability: Syncability = Syncability::from(&input.parse()?);
-        let _brace: Brace = braced!(in_braces in input);
-        let repositories: Punctuated<RepositoryInput, Token![,]> = in_braces.parse_terminated(RepositoryInput::parse)?;
-        Ok(RepositoriesInput {
+        braced!(in_brace in input);
+        let repositories: Punctuated<RepositoryInput, Token![,]> = in_brace.parse_terminated(RepositoryInput::parse)?;
+
+        let mut input = RepositoriesInput {
             repositories: repositories
                 .into_iter()
                 .map(|repository| RepositoryInput {
@@ -100,26 +131,34 @@ impl Parse for RepositoriesInput {
                     ..repository
                 })
                 .collect(),
-        })
+        };
+
+        let read_repositories = input.tys().into_iter().map(|ty| format!("{}ReadRepository", ty)).collect::<Vec<_>>().join(" + ");
+
+        for repository in input.repositories.iter_mut() {
+            repository.read_repositories = read_repositories.clone().parse().unwrap();
+        }
+
+        Ok(input)
     }
 }
 
 impl Parse for RepositoryInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let in_braces;
-        let in_parens;
+        let in_brace;
+        let in_paren;
 
         let ty: Ident = input.parse()?;
 
-        let _paren: Paren = parenthesized!(in_parens in input);
-        let id_type: Punctuated<Ident, Token![::]> = in_parens.parse_terminated(Ident::parse)?;
+        parenthesized!(in_paren in input);
+        let id_type: Punctuated<Ident, Token![::]> = in_paren.parse_terminated(Ident::parse)?;
 
-        let idents: EntityIdents = EntityIdents {
+        let idents: RepositoryIdents = RepositoryIdents {
             singular: format_ident!("{}", format!("{}", ty).to_case(Case::Snake)),
             plural: if input.peek(Paren) {
-                let in_parens;
-                let _paren: Paren = parenthesized!(in_parens in input);
-                in_parens.parse()?
+                let in_paren;
+                let _paren: Paren = parenthesized!(in_paren in input);
+                in_paren.parse()?
             } else {
                 format_ident!("{}", format!("{}s", ty).to_case(Case::Snake))
             },
@@ -127,40 +166,44 @@ impl Parse for RepositoryInput {
         };
 
         let mutability: Mutability = Mutability::from(&input.parse()?);
-        let _brace: Brace = braced!(in_braces in input);
-        let relations: Punctuated<RelationInput, Token![,]> = in_braces.parse_terminated(RelationInput::parse)?;
+        braced!(in_brace in input);
+
+        let fields: RepositoryInputFields = in_brace.parse()?;
+
         Ok(RepositoryInput {
             idents,
             id_type,
             mutability,
-            relations: relations.into_iter().collect(),
             syncability: None,
+            read_repositories: quote! {},
+            load_bys: fields.load_by.unwrap_or(vec![]),
+            relations: fields.relations,
         })
     }
 }
 
 impl Parse for RelationInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let in_parens;
+        let in_paren;
 
         let snake_ident: Ident = input.parse()?;
         let plural_ident: Option<Ident> = if input.peek(Paren) {
-            let in_parens;
-            let _paren: Paren = parenthesized!(in_parens in input);
-            Some(in_parens.parse()?)
+            let in_paren;
+            let _paren: Paren = parenthesized!(in_paren in input);
+            Some(in_paren.parse()?)
         } else {
             None
         };
 
         let _colon: Token![:] = input.parse()?;
-        let _paren: Paren = parenthesized!(in_parens in input);
-        let ty_ident: Ident = in_parens.parse()?;
-        let _comma: Token![,] = in_parens.parse()?;
-        let cardinality = Cardinality::from(&in_parens.parse()?);
+        let _paren: Paren = parenthesized!(in_paren in input);
+        let ty_ident: Ident = in_paren.parse()?;
+        let _comma: Token![,] = in_paren.parse()?;
+        let cardinality = Cardinality::from(&in_paren.parse()?);
 
         Ok(RelationInput {
             syncability: None,
-            idents: RelationEntityIdents {
+            idents: RelationIdents {
                 ty: ty_ident,
                 plural: plural_ident.unwrap_or_else(|| match cardinality {
                     Cardinality::One|Cardinality::OneOrNone => format_ident!("{}s", snake_ident),
@@ -168,6 +211,44 @@ impl Parse for RelationInput {
                 }),
                 snake: snake_ident,
             },
+            cardinality,
+        })
+    }
+}
+
+impl Parse for LoadByInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let in_paren;
+
+        let singular: Ident = input.parse()?;
+        let idents = LoadByIdents {
+            plural: if input.peek(Paren) {
+                let in_paren;
+                parenthesized!(in_paren in input);
+                in_paren.parse()?
+            } else {
+                format_ident!("{}", format!("{}s", singular))
+            },
+            singular,
+        };
+
+        let _colon: Token![:] = input.parse()?;
+        parenthesized!(in_paren in input);
+
+        let ty: Type = in_paren.parse()?;
+        let _comma: Token![,] = in_paren.parse()?;
+
+        let cardinality_span = in_paren.span();
+        let cardinality = Cardinality::from(&in_paren.parse()?);
+
+        match &cardinality {
+            Cardinality::OneOrNone|Cardinality::AtLeastOne => return Err(syn::Error::new(cardinality_span, "load by cardinality must be one of {One, Many}")),
+            _ => {},
+        };
+
+        Ok(LoadByInput {
+            idents,
+            ty,
             cardinality,
         })
     }
@@ -189,13 +270,6 @@ impl RepositoriesInput {
         self.repositories
             .iter()
             .map(|repository| repository.ty())
-            .collect()
-    }
-
-    pub (crate) fn write_tys(&self) -> Vec<&Ident> {
-        self.repositories
-            .iter()
-            .filter_map(|repository| if let Mutability::RW = repository.mutability { Some(repository.ty()) } else { None })
             .collect()
     }
 }
@@ -230,6 +304,10 @@ impl RepositoryInput {
     pub (crate) fn sync_ptr(&self) -> TokenStream2 {
         self.syncability.as_ref().unwrap().sync_ptr()
     }
+
+    pub (crate) fn read_repositories(&self) -> &TokenStream2 {
+        &self.read_repositories
+    }
 }
 
 impl RelationInput {
@@ -247,6 +325,20 @@ impl RelationInput {
 
     pub (crate) fn sync_ptr(&self) -> TokenStream2 {
         self.syncability.as_ref().unwrap().sync_ptr()
+    }
+}
+
+impl LoadByInput {
+    pub (crate) fn ty(&self) -> &Type {
+        &self.ty
+    }
+
+    pub (crate) fn singular(&self) -> &Ident {
+        &self.idents.singular
+    }
+
+    pub (crate) fn plural(&self) -> &Ident {
+        &self.idents.plural
     }
 }
 

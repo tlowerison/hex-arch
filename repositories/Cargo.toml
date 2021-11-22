@@ -1,8 +1,8 @@
 [package]
 name = "hex_arch_repositories"
-version = "0.1.4"
+version = "0.2.0"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 common = { path = "../common", package = "hex_arch_common" }
