@@ -28,7 +28,7 @@ expand() {
   start_line=$(echo "$expanded" | grep -n "pub trait" | head -1 | cut -f1 -d:)
   traits=$(echo "$expanded" | sed -n "$start_line"',$p')
   echo "$traits" > expanded.rs
-  perl -0777 -pi -e 's/\n\s+where\n\s+Self: ([A-z]+Repository)(\n\s+\+ [A-z]+Repository)*,//g' expanded.rs
+  perl -0777 -pi -e 's/\s*\n\s+where\n\s+Self: ([A-z]+Repository)(\n\s+\+ [A-z]+Repository)*,\n\s*/ /g' expanded.rs
   cat expanded.rs
 }
 
