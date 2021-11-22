@@ -1,40 +1,35 @@
 #!/bin/sh
 
-if [ "$#" -ne 2 ]; then
-  echo "expected a path to entities directory as first argument and repository adaptor ident as second argument"
+if [ "$#" -lt 2 ]; then
+  echo "expected a path to entities directory as first argument and path to directory for expanded code"
   exit 1
 fi
 
-pwd="$PWD/$1"
-adaptor="$2"
-
-tmp_dir_name=$(mktemp -d)
-
-trap cleanup SIGINT EXIT
-
-cleanup() {
-  cd "$pwd" && rm -rf "$tmp_dir_name"
-}
+pwd="$PWD/$1"; shift
+tmp_dir_name="$1"; shift
+flags="$@"
 
 expand() {
   cp -a "$pwd/." "$tmp_dir_name/"
   cd "$tmp_dir_name"
 
-  sed -i "" 's/^name = ".*/name = "tmp_repositories_expansion"/g' Cargo.toml
+  find src -type f | xargs -n1 sed -i "" 's/repositories!/print_repositories!/g'
+  cargo expand $flags > expanded.rs
+  cat expanded.rs |
+    sed 's/::alloc/std/g' |
+    sed 's/:: alloc/std/g' |
+    sed 's/::itertools::__std_iter::IntoIterator/std::iter::IntoIterator/g' |
+    sed 's/map(|((a, b), b)| (a, b, b))/map(|((a, b), c)| (a, b, c))/g' |
+    sed 's/::core::panicking::panic("not yet implemented")/todo!()/g' > expanded2.rs
+  cat expanded2.rs > expanded.rs
+  rm expanded2.rs
 
-  sed -i "" 's/repositories!/print_repositories!/g' src/lib.rs
-  sed -i "" 's/load_by!/print_load_by!/g' src/lib.rs
-
-  expanded=$(cargo expand 2>/dev/null)
-  start_line=$(echo "$expanded" | grep -n "pub trait BaseRepository" | cut -f1 -d:)
+  expanded=$(cat expanded.rs)
+  start_line=$(echo "$expanded" | grep -n "pub trait" | head -1 | cut -f1 -d:)
   traits=$(echo "$expanded" | sed -n "$start_line"',$p')
-  echo "$traits" |
-    sed "s/pub trait BaseRepository: Clone + Sized/impl BaseRepository for $adaptor/" |
-    sed -E 's/fn (.*) -> Self::Error;/fn \1 -> Self::Error { todo!() }/g' |
-    sed -E "s/pub trait ([A-z0-9_]+): BaseRepository/impl \1 for $adaptor/g" |
-    sed 's/::core::panicking::panic("not yet implemented")/todo!()/g' |
-    sed 's/fn/\n    fn/g' |
-    sed 's/impl/\nimpl/g'
+  echo "$traits" > expanded.rs
+  perl -0777 -pi -e 's/\n\s+where\n\s+Self: ([A-z]+Repository)(\n\s+\+ [A-z]+Repository)*,//g' expanded.rs
+  cat expanded.rs
 }
 
 expand

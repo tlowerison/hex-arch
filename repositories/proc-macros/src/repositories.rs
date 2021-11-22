@@ -5,13 +5,21 @@ use syn::Ident;
 
 pub (crate) fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream2 {
     let read_repositories = read_repositories::read_repositories(&input, todo);
-    let write_repositories = write_repositories::write_repositories(&input);
+    let write_repositories = write_repositories::write_repositories(&input, todo);
 
-    quote! {
-        use std::ops::Deref as RepositoriesDeref;
+    let deref = quote! { use std::ops::Deref as RepositoriesDeref; };
 
-        #read_repositories
-        #write_repositories
+    if todo {
+        quote! {
+            #read_repositories
+            #write_repositories
+        }
+    } else {
+        quote! {
+            #deref
+            #read_repositories
+            #write_repositories
+        }
     }
 }
 
@@ -22,32 +30,39 @@ pub (crate) mod read_repositories {
         let read_repositories: Vec<_> = input.repositories
             .iter()
             .map(|repository| {
-                let ty_entity = ty_entity(repository);
-                let load_ty_relations = load_ty_relations(repository);
-                let loaded_ty_relations = loaded_ty_relations(repository);
                 let ty_base_repository = ty_base_repository(repository);
                 let ty_read_repository = ty_read_repository::ty_read_repository(repository, input, todo);
-                let get_ty_singular_builder = builders::get_ty_singular_builder(repository);
-                let get_ty_multiple_builder = builders::get_ty_multiple_builder(repository);
-                let try_get_ty_singular_builder = builders::try_get_ty_singular_builder(repository);
-                let try_get_ty_multiple_builder = builders::try_get_ty_multiple_builder(repository);
-                let get_by_fields: Vec<_> = repository
-                    .load_bys
-                    .iter()
-                    .map(|load_by| ty_read_repository::get_by_field(repository, load_by))
-                    .collect();
 
-                quote! {
-                    #ty_entity
-                    #load_ty_relations
-                    #loaded_ty_relations
-                    #ty_base_repository
-                    #ty_read_repository
-                    #get_ty_singular_builder
-                    #get_ty_multiple_builder
-                    #try_get_ty_singular_builder
-                    #try_get_ty_multiple_builder
-                    #(#get_by_fields)*
+                if todo {
+                    quote! {
+                        #ty_base_repository
+                        #ty_read_repository
+                    }
+                } else {
+                    let ty_entity = ty_entity(repository);
+                    let load_ty_relations = load_ty_relations(repository);
+                    let loaded_ty_relations = loaded_ty_relations(repository);
+                    let get_ty_singular_builder = builders::get_ty_singular_builder(repository);
+                    let get_ty_multiple_builder = builders::get_ty_multiple_builder(repository);
+                    let try_get_ty_singular_builder = builders::try_get_ty_singular_builder(repository);
+                    let try_get_ty_multiple_builder = builders::try_get_ty_multiple_builder(repository);
+                    let get_by_fields: Vec<_> = repository
+                        .load_bys
+                        .iter()
+                        .map(|load_by| ty_read_repository::get_by_field(repository, load_by))
+                        .collect();
+                    quote! {
+                        #ty_entity
+                        #load_ty_relations
+                        #loaded_ty_relations
+                        #ty_base_repository
+                        #ty_read_repository
+                        #get_ty_singular_builder
+                        #get_ty_multiple_builder
+                        #try_get_ty_singular_builder
+                        #try_get_ty_multiple_builder
+                        #(#get_by_fields)*
+                    }
                 }
             })
             .collect();
@@ -179,7 +194,7 @@ pub (crate) mod read_repositories {
             let try_get_singular = try_get_singular(repository);
             let try_get_multiple = try_get_multiple(repository);
 
-            let entity_storage = entity_storage(repository);
+            let entity_storage = entity_storage(repository, todo);
 
             let inward_relations: Vec<_> = input.repositories
                 .iter()
@@ -217,99 +232,139 @@ pub (crate) mod read_repositories {
                 .map(|load_by| load_by_field_multiple(repository, load_by, todo))
                 .collect();
 
-            quote! {
+            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
+
+            let todo_fns = quote! {
                 repositories_paste! {
-                    pub trait [<#ty ReadRepository>]: [<#ty BaseRepository>] {
-                        #entity_storage
+                    #entity_storage
 
-                        fn [<load_ #plural>](
-                            [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
-                            client: Self::Client<'_>,
-                        ) -> Result<
-                            Vec<<Self as [<#ty BaseRepository>]>::Record>,
-                            Self::Error,
-                        >;
+                    fn [<load_ #plural>](
+                        [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
+                        client: Self::Client<'_>,
+                    ) -> Result<
+                        Vec<<Self as [<#ty BaseRepository>]>::Record>,
+                        Self::Error,
+                    >
+                        #body
 
-                        fn [<load_all_ #plural>](
-                            client: Self::Client<'_>,
-                        ) -> Result<
-                            Vec<<Self as [<#ty BaseRepository>]>::Record>,
-                            Self::Error,
-                        >;
+                    fn [<load_all_ #plural>](
+                        client: Self::Client<'_>,
+                    ) -> Result<
+                        Vec<<Self as [<#ty BaseRepository>]>::Record>,
+                        Self::Error,
+                    >
+                        #body
 
-                        fn [<try_load_ #plural>](
-                            [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
-                            client: Self::Client<'_>,
-                        ) -> Result<
-                            Vec<Option<<Self as [<#ty BaseRepository>]>::Record>>,
-                            Self::Error,
-                        >;
+                    fn [<try_load_ #plural>](
+                        [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
+                        client: Self::Client<'_>,
+                    ) -> Result<
+                        Vec<Option<<Self as [<#ty BaseRepository>]>::Record>>,
+                        Self::Error,
+                    >
+                        #body
 
-                        #get_singular
-                        #get_multiple
-                        #try_get_singular
-                        #try_get_multiple
-                        #(
-                            #load_by_multiples
-                            #get_by_singles
-                            #get_by_multiples
-                        )*
+                    #(
+                        #load_by_multiples
+                    )*
 
-                        #(
-                            #load_by_field_multiples
-                        )*
+                    #(
+                        #load_by_field_multiples
+                    )*
+                }
+            };
+
+            if todo {
+                quote! {
+                    repositories_paste! {
+                        pub trait [<#ty ReadRepository>]: [<#ty BaseRepository>] {
+                            #todo_fns
+                        }
+                    }
+                }
+            } else {
+                quote! {
+                    repositories_paste! {
+                        pub trait [<#ty ReadRepository>]: [<#ty BaseRepository>] {
+                            #todo_fns
+
+                            #get_singular
+                            #get_multiple
+                            #try_get_singular
+                            #try_get_multiple
+                            #(
+                                #get_by_singles
+                                #get_by_multiples
+                            )*
+                        }
                     }
                 }
             }
         }
 
-        fn entity_storage(repository: &RepositoryInput) -> TokenStream2 {
+        fn entity_storage(repository: &RepositoryInput, todo: bool) -> TokenStream2 {
             let sync_ptr = repository.sync_ptr();
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
             let read_repositories = repository.read_repositories();
 
-            quote! {
+            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
+
+            let todo_fns = quote! {
                 repositories_paste! {
                     fn [<#plural _mut>](&mut self) -> &mut std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Id, (#sync_ptr<#ty>, #sync_ptr<<Self as [<#ty BaseRepository>]>::Record>)>
                     where
                         Self: #read_repositories
-                    ;
+                    #body
+                }
+            };
 
-                    fn [<foo_store_ #singular>](&mut self, #singular: <Self as [<#ty BaseRepository>]>::Record)-> (#sync_ptr<#ty>, #sync_ptr<<Self as [<#ty BaseRepository>]>::Record>)
-                    where
-                        Self: #read_repositories
-                    {
-                        let (mut records, mut #plural) = self.[<store_ #plural>](vec![#singular]);
-                        (records.pop().unwrap(), #plural.pop().unwrap())
+            if todo {
+                quote! {
+                    repositories_paste! {
+                        #todo_fns
                     }
+                }
+            } else {
+                quote! {
+                    repositories_paste! {
+                        #todo_fns
 
-                    fn [<store_ #plural>](&mut self, [<adaptor_ #plural>]: Vec<<Self as [<#ty BaseRepository>]>::Record>)-> (Vec<#sync_ptr<#ty>>, Vec<#sync_ptr<<Self as [<#ty BaseRepository>]>::Record>>)
-                    where
-                        Self: #read_repositories
-                    {
-                        let [<stored_ #plural>] = self.[<#plural _mut>]();
-                        repositories_transpose_2(
-                            [<adaptor_ #plural>]
-                                .into_iter()
-                                .map(|[<adaptor_ #singular>]| {
-                                    let id = [<adaptor_ #singular>].as_ref();
-                                    let record_and_adaptor_record = if ![<stored_ #plural>].contains_key(id) {
-                                        let adaptor_record = [<adaptor_ #singular>].clone();
-                                        [<stored_ #plural>]
-                                            .entry(id.clone())
-                                            .or_insert((
-                                                #sync_ptr::new([<adaptor_ #singular>].into()),
-                                                #sync_ptr::new(adaptor_record),
-                                            ))
-                                    } else {
-                                        [<stored_ #plural>].get(id).unwrap()
-                                    };
-                                    (record_and_adaptor_record.0.clone(), record_and_adaptor_record.1.clone())
-                                })
-                                .collect()
-                        )
+                        fn [<store_ #singular>](&mut self, #singular: <Self as [<#ty BaseRepository>]>::Record)-> (#sync_ptr<#ty>, #sync_ptr<<Self as [<#ty BaseRepository>]>::Record>)
+                        where
+                            Self: #read_repositories
+                        {
+                            let (mut records, mut #plural) = self.[<store_ #plural>](vec![#singular]);
+                            (records.pop().unwrap(), #plural.pop().unwrap())
+                        }
+
+                        fn [<store_ #plural>](&mut self, [<adaptor_ #plural>]: Vec<<Self as [<#ty BaseRepository>]>::Record>)-> (Vec<#sync_ptr<#ty>>, Vec<#sync_ptr<<Self as [<#ty BaseRepository>]>::Record>>)
+                        where
+                            Self: #read_repositories
+                        {
+                            let [<stored_ #plural>] = self.[<#plural _mut>]();
+                            repositories_transpose_2(
+                                [<adaptor_ #plural>]
+                                    .into_iter()
+                                    .map(|[<adaptor_ #singular>]| {
+                                        let id = [<adaptor_ #singular>].as_ref();
+                                        let record_and_adaptor_record = if ![<stored_ #plural>].contains_key(id) {
+                                            let adaptor_record = [<adaptor_ #singular>].clone();
+                                            [<stored_ #plural>]
+                                                .entry(id.clone())
+                                                .or_insert((
+                                                    #sync_ptr::new([<adaptor_ #singular>].into()),
+                                                    #sync_ptr::new(adaptor_record),
+                                                ))
+                                        } else {
+                                            [<stored_ #plural>].get(id).unwrap()
+                                        };
+                                        (record_and_adaptor_record.0.clone(), record_and_adaptor_record.1.clone())
+                                    })
+                                    .collect()
+                            )
+                        }
                     }
                 }
             }
@@ -341,7 +396,7 @@ pub (crate) mod read_repositories {
                     where
                         Self: #read_repositories
                     {
-                        let (record, #singular) = self.[<foo_store_ #singular>](#singular);
+                        let (record, #singular) = self.[<store_ #singular>](#singular);
                         let #singular = #singular.deref();
 
                         let mut loaded_relations: [<Loaded #ty Relations>] = [<Loaded #ty Relations>]::default();
@@ -472,7 +527,7 @@ pub (crate) mod read_repositories {
                             None => return Ok(None),
                         };
 
-                        let (record, #singular) = self.[<foo_store_ #singular>](#singular);
+                        let (record, #singular) = self.[<store_ #singular>](#singular);
                         let #singular = #singular.deref();
 
                         let mut loaded_relations = [<Loaded #ty Relations>]::default();
@@ -636,7 +691,7 @@ pub (crate) mod read_repositories {
                 Cardinality::One => quote! { repositories_paste! {
                     let adaptor_record = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?.pop().unwrap();
 
-                    let (record, #singular) = self.[<foo_store_ #singular>](adaptor_record);
+                    let (record, #singular) = self.[<store_ #singular>](adaptor_record);
                     let #singular = #singular.deref();
 
                     let mut loaded_relations = [<Loaded #ty Relations>]::default();
@@ -660,7 +715,7 @@ pub (crate) mod read_repositories {
                         None => return Ok(None),
                     };
 
-                    let (record, #singular) = self.[<foo_store_ #singular>](adaptor_record);
+                    let (record, #singular) = self.[<store_ #singular>](adaptor_record);
                     let #singular = #singular.deref();
 
                     let mut loaded_relations = [<Loaded #ty Relations>]::default();
@@ -1372,27 +1427,33 @@ pub (crate) mod read_repositories {
 pub (crate) mod write_repositories {
     use super::*;
 
-    pub (crate) fn write_repositories(input: &RepositoriesInput) -> TokenStream2 {
+    pub (crate) fn write_repositories(input: &RepositoriesInput, todo: bool) -> TokenStream2 {
         let write_repositories: Vec<_> = input.repositories
             .iter()
             .filter(|repository| if let Mutability::RW = repository.mutability { true } else { false })
             .map(|repository| {
-                let ty_write_repository = ty_write_repository::ty_write_repository(repository);
-                let delete_ty_singular_builder = builders::delete_ty_singular_builder(repository);
-                let delete_ty_multiple_builder = builders::delete_ty_multiple_builder(repository);
-                let insert_ty_singular_builder = builders::insert_ty_singular_builder(repository);
-                let insert_ty_multiple_builder = builders::insert_ty_multiple_builder(repository);
-                let update_ty_singular_builder = builders::update_ty_singular_builder(repository);
-                let update_ty_multiple_builder = builders::update_ty_multiple_builder(repository);
+                let ty_write_repository = ty_write_repository::ty_write_repository(repository, todo);
 
-                quote! {
-                    #ty_write_repository
-                    #delete_ty_singular_builder
-                    #delete_ty_multiple_builder
-                    #insert_ty_singular_builder
-                    #insert_ty_multiple_builder
-                    #update_ty_singular_builder
-                    #update_ty_multiple_builder
+                if todo {
+                    quote! {
+                        #ty_write_repository
+                    }
+                } else {
+                    let delete_ty_singular_builder = builders::delete_ty_singular_builder(repository);
+                    let delete_ty_multiple_builder = builders::delete_ty_multiple_builder(repository);
+                    let insert_ty_singular_builder = builders::insert_ty_singular_builder(repository);
+                    let insert_ty_multiple_builder = builders::insert_ty_multiple_builder(repository);
+                    let update_ty_singular_builder = builders::update_ty_singular_builder(repository);
+                    let update_ty_multiple_builder = builders::update_ty_multiple_builder(repository);
+                    quote! {
+                        #ty_write_repository
+                        #delete_ty_singular_builder
+                        #delete_ty_multiple_builder
+                        #insert_ty_singular_builder
+                        #insert_ty_multiple_builder
+                        #update_ty_singular_builder
+                        #update_ty_multiple_builder
+                    }
                 }
             })
             .collect();
@@ -1405,10 +1466,12 @@ pub (crate) mod write_repositories {
     pub (crate) mod ty_write_repository {
         use super::*;
 
-        pub (crate) fn ty_write_repository(repository: &RepositoryInput) -> TokenStream2 {
+        pub (crate) fn ty_write_repository(repository: &RepositoryInput, todo: bool) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
+
+            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
 
             quote! {
                 repositories_paste! {
@@ -1419,17 +1482,20 @@ pub (crate) mod write_repositories {
                         fn [<delete_ #plural>](
                             [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
                             client: Self::Client<'_>,
-                        ) -> Result<usize, Self::Error>;
+                        ) -> Result<usize, Self::Error>
+                            #body
 
                         fn [<insert_ #plural>](
                             [<#singular _posts>]: Vec<<Self as [<#ty WriteRepository>]>::RecordPost>,
                             client: Self::Client<'_>,
-                        ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Record>, Self::Error>;
+                        ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Record>, Self::Error>
+                            #body
 
                         fn [<update_ #plural>](
                             [<#singular _patches>]: Vec<<Self as [<#ty WriteRepository>]>::RecordPatch>,
                             client: Self::Client<'_>,
-                        ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Record>, Self::Error>;
+                        ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Record>, Self::Error>
+                            #body
                     }
                 }
             }

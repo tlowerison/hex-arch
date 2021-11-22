@@ -16,3 +16,9 @@ pub fn repositories(item: TokenStream) -> TokenStream  {
     let input = parse_macro_input!(item as RepositoriesInput);
     repositories::repositories(input, false).into()
 }
+
+#[proc_macro]
+pub fn print_repositories(item: TokenStream) -> TokenStream  {
+    let input = parse_macro_input!(item as RepositoriesInput);
+    repositories::repositories(input, true).into()
+}
