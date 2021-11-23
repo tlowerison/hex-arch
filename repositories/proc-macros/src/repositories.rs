@@ -9,6 +9,25 @@ pub (crate) fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream
 
     let deref = quote! { use std::ops::Deref as RepositoriesDeref; };
 
+    let readables: Vec<_> = input.repositories.iter().map(|repository| repository.ty()).collect();
+    let writables: Vec<_> = input.repositories
+        .iter()
+        .filter_map(|repository| match repository.mutability {
+            Mutability::RW => Some(repository.ty()),
+            Mutability::R => None,
+        })
+        .collect();
+
+    let namespaced: TokenStream2 = input.name
+        .as_ref()
+        .map(|name| quote! {
+            repositories_paste! {
+                pub trait [<#name ReadRepository>] = #([<#readables ReadRepository>])+*;
+                pub trait [<#name ReadWriteRepository>] = [<#name ReadRepository>] + #([<#writables WriteRepository>])+*;
+            }
+        })
+        .unwrap_or(quote! {});
+
     if todo {
         quote! {
             #read_repositories
@@ -17,6 +36,7 @@ pub (crate) fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream
     } else {
         quote! {
             #deref
+            #namespaced
             #read_repositories
             #write_repositories
         }
@@ -1048,13 +1068,12 @@ pub (crate) mod read_repositories {
 
         pub (crate) fn load_by_field_multiple(repository: &RepositoryInput, load_by: &LoadByInput, todo: bool) -> TokenStream2 {
             let ty = repository.ty();
-            let singular = repository.singular();
             let plural = repository.plural();
 
             let load_by_ty = load_by.ty();
             let load_by_plural = load_by.plural();
 
-            let load_by_field_multiple_fn_name = format_ident!("load_{}_by_{}_{}", plural, singular, load_by_plural);
+            let load_by_field_multiple_fn_name = format_ident!("load_{}_by_{}", plural, load_by_plural);
 
             let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
 
@@ -1080,7 +1099,6 @@ pub (crate) mod read_repositories {
 
         pub (crate) fn get_by_field(repository: &RepositoryInput, load_by: &LoadByInput) -> TokenStream2 {
             let ty = repository.ty();
-            let singular = repository.singular();
             let plural = repository.plural();
             let read_repositories = repository.read_repositories();
 
@@ -1088,7 +1106,7 @@ pub (crate) mod read_repositories {
             let load_by_singular = load_by.singular();
             let load_by_plural = load_by.plural();
 
-            let load_by_field_multiple_fn_name = format_ident!("load_{}_by_{}_{}", plural, singular, load_by_plural);
+            let load_by_field_multiple_fn_name = format_ident!("load_{}_by_{}", plural, load_by_plural);
 
             match load_by.cardinality {
                 Cardinality::One => quote! { repositories_paste! {

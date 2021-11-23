@@ -25,6 +25,7 @@ pub (crate) enum Syncability {
 }
 
 pub (crate) struct RepositoriesInput {
+    pub (crate) name: Option<Ident>,
     pub (crate) repositories: Vec<RepositoryInput>,
 }
 
@@ -113,10 +114,13 @@ impl Parse for RepositoriesInput {
         let in_brace;
 
         let syncability: Syncability = Syncability::from(&input.parse()?);
+        let name: Option<Ident> = input.parse().ok();
+
         braced!(in_brace in input);
         let repositories: Punctuated<RepositoryInput, Token![,]> = in_brace.parse_terminated(RepositoryInput::parse)?;
 
         let mut input = RepositoriesInput {
+            name,
             repositories: repositories
                 .into_iter()
                 .map(|repository| RepositoryInput {
