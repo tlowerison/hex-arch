@@ -1,12 +1,12 @@
 [package]
 name = "hex_arch_try_new"
-version = "0.2.0"
+version = "0.2.6"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
 [dependencies]
 common = { path = "../common", package = "hex_arch_common" }
-proc-macro2 = "1.0.29"
+proc-macro2 = "1.0.32"
 quote = "1.0.10"
 syn = { version = "1.0.80", features = ["parsing"] }
 

@@ -10,7 +10,6 @@ pub fn getters(item: TokenStream) -> TokenStream {
     let ast: syn::DeriveInput = syn::parse(item).unwrap();
 
     let name = &ast.ident;
-    let name_with_pub_fields = format_ident!("{}Pub", name);
 
     let (getter_fn_names, fields, field_types) = transpose_3::<Ident, Ident, Type>(match &ast.data {
         syn::Data::Struct(data_struct) => match &data_struct.fields {
@@ -33,56 +32,6 @@ pub fn getters(item: TokenStream) -> TokenStream {
         _ => panic!("Getters can only be derived on struct data types at this time."),
     });
 
-    let struct_with_pub_fields = match &ast.data {
-        syn::Data::Struct(data_struct) => match &data_struct.fields {
-            syn::Fields::Named(_) => quote! {
-                pub struct #name_with_pub_fields {
-                    #(pub #fields: #field_types,)*
-                }
-            },
-            syn::Fields::Unnamed(_) => quote! {
-                pub struct #name_with_pub_fields(
-                    #(pub #field_types,)*
-                );
-            },
-            syn::Fields::Unit => quote! {
-                pub struct #name_with_pub_fields;
-            },
-        },
-        _ => unreachable!(),
-    };
-
-    let impl_from_struct_for_struct_with_pub_fields = match &ast.data {
-        syn::Data::Struct(data_struct) => match &data_struct.fields {
-            syn::Fields::Named(_) => quote! {
-                impl From<#name> for #name_with_pub_fields {
-                    fn from(value: #name) -> #name_with_pub_fields {
-                        #name_with_pub_fields {
-                            #(#fields: value.#fields,)*
-                        }
-                    }
-                }
-            },
-            syn::Fields::Unnamed(_) => quote! {
-                impl From<#name> for #name_with_pub_fields {
-                    fn from(value: #name) -> #name_with_pub_fields {
-                        #name_with_pub_fields(
-                            #(value.#fields,)*
-                        )
-                    }
-                }
-            },
-            syn::Fields::Unit => quote! {
-                impl From<#name> for #name_with_pub_fields {
-                    fn from(_: #name) -> #name_with_pub_fields {
-                        #name_with_pub_fields
-                    }
-                }
-            },
-        },
-        _ => unreachable!(),
-    };
-
     let gen = quote! {
         impl #name {
             #(
@@ -91,10 +40,6 @@ pub fn getters(item: TokenStream) -> TokenStream {
                 }
             )*
         }
-
-        #struct_with_pub_fields
-
-        #impl_from_struct_for_struct_with_pub_fields
     };
     gen.into()
 }

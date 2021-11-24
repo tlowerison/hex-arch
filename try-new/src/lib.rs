@@ -4,7 +4,7 @@ extern crate proc_macro;
 use common::*;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use syn::{Attribute, PathArguments};
+use syn::{Attribute, Ident, PathArguments, Type};
 
 fn is_matching_attr(attr: &Attribute) -> bool {
     let path = &attr.path;
@@ -23,51 +23,42 @@ fn is_matching_attr(attr: &Attribute) -> bool {
     false
 }
 
-#[proc_macro_derive(TryNew, attributes(try_new_default))]
-pub fn derive_try_new(item: TokenStream) -> TokenStream {
-    let ast: syn::DeriveInput = syn::parse(item).unwrap();
-
-    let name = &ast.ident;
-    let error_name = format_ident!("{}Error", name);
-
-    let field_name_type_and_inclusion_in_signatures = match &ast.data {
-        syn::Data::Struct(data_struct) => match &data_struct.fields {
-            syn::Fields::Named(fields_named) => fields_named
-                .named
-                .iter()
-                .map(|field| {
-                    let mut include_in_signature = true;
-                    for attr in field.attrs.iter() {
-                        if is_matching_attr(&attr) {
-                            include_in_signature = false;
-                        }
-                    }
-                    (field.ident.as_ref().unwrap().clone(), field.ty.clone(), include_in_signature)
-                })
-                .collect(),
-            syn::Fields::Unnamed(fields_unnamed) => fields_unnamed
-                .unnamed
-                .iter()
-                .enumerate()
-                .map(|(index, field)| {
-                    let mut include_in_signature = true;
-                    for attr in field.attrs.iter() {
-                        if is_matching_attr(&attr) {
-                            include_in_signature = false;
-                        }
-                    }
-                    (format_ident!("_{}", index), field.ty.clone(), include_in_signature)
-                })
-                .collect(),
-            syn::Fields::Unit => vec![],
-        },
-        _ => panic!("TryNew can only be derived on struct data types at this time."),
-    };
-
-    let (signature_field_names, signature_field_types) = transpose_2(field_name_type_and_inclusion_in_signatures
+fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Ident, should_access_draft_instance: bool) -> ((Vec<Ident>, Vec<TokenStream2>), (Vec<Ident>, Vec<Type>)) {
+    let field_name_type_and_inclusion_in_drafts: Vec<_> = fields_named
+        .named
         .iter()
-        .filter_map(|(field_name, field_type, inclusions_in_signature)|
-            if *inclusions_in_signature {
+        .map(|field| {
+            let mut include_in_signature = true;
+            for attr in field.attrs.iter() {
+                if is_matching_attr(&attr) {
+                    include_in_signature = false;
+                }
+            }
+            (field.ident.as_ref().unwrap().clone(), field.ty.clone(), include_in_signature)
+        })
+        .collect();
+
+    let (field_names, field_instances) = transpose_2(field_name_type_and_inclusion_in_drafts
+        .iter()
+        .map(|(field_name, field_type, inclusion_in_draft)| (
+            field_name.clone(),
+            if *inclusion_in_draft {
+                if should_access_draft_instance {
+                    quote! { #draft_instance_name.#field_name }
+                } else {
+                    quote! { #field_name }
+                }
+            } else {
+                quote! { <#field_type>::default() }
+            }
+        ))
+        .collect()
+    );
+
+    let (draft_field_names, draft_field_types) = transpose_2(field_name_type_and_inclusion_in_drafts
+        .iter()
+        .filter_map(|(field_name, field_type, inclusion_in_draft)|
+            if *inclusion_in_draft {
                 Some((field_name.clone(), field_type.clone()))
             } else {
                 None
@@ -76,40 +67,181 @@ pub fn derive_try_new(item: TokenStream) -> TokenStream {
         .collect()
     );
 
-    let (instance_field_names, instance_field_values) = transpose_2(field_name_type_and_inclusion_in_signatures
+    (
+        (field_names, field_instances),
+        (draft_field_names, draft_field_types),
+    )
+}
+
+fn unnamed_fields_util(fields_unnamed: &syn::FieldsUnnamed) -> (Vec<Type>, Vec<usize>) {
+    let field_types: Vec<_> = fields_unnamed
+        .unnamed
         .iter()
-        .filter_map(|(field_name, field_type, inclusions_in_signature)|
-            if *inclusions_in_signature {
-                Some((field_name.clone(), quote! { #field_name }))
-            } else {
-                let field_type_str = format!("{}", quote! { #field_type });
-                let field_type_str = field_type_str.trim();
-                let field_type_token_stream: TokenStream2 = if let Some(index) = field_type_str.find("<") {
-                    format!("{}::{}", &field_type_str[..index], &field_type_str[index..]).parse().unwrap()
-                } else {
-                    field_type_str.parse().unwrap()
-                };
-                Some((field_name.clone(), quote! { #field_type_token_stream::default() }))
+        .map(|field| {
+            for attr in field.attrs.iter() {
+                if is_matching_attr(&attr) {
+                    panic!("try_new_default attribute cannot be attached to unnamed fields");
+                }
             }
-        )
-        .collect()
-    );
+            field.ty.clone()
+        })
+        .collect();
 
-    let instance = match &ast.data {
+    let indices: Vec<_> = (0..field_types.len()).collect();
+
+    (field_types, indices)
+}
+
+#[proc_macro_derive(TryNew, attributes(try_new_default))]
+pub fn derive_try_new(item: TokenStream) -> TokenStream {
+    let ast: syn::DeriveInput = syn::parse(item).unwrap();
+
+    let name = &ast.ident;
+    let draft_name = format_ident!("Draft{}", name);
+    let error_name = format_ident!("{}Error", name);
+    let instance_name = format_ident!("instance");
+    let draft_instance_name = format_ident!("draft");
+
+    let gen = match &ast.data {
         syn::Data::Struct(data_struct) => match &data_struct.fields {
-            syn::Fields::Named(_) => quote! { #name { #(#instance_field_names: #instance_field_values,)* } },
-            syn::Fields::Unnamed(_) => quote! { #name(#(#instance_field_values,)*) },
-            syn::Fields::Unit => quote! { #name },
+            syn::Fields::Named(fields_named) => {
+                let (
+                    (field_names, field_instances),
+                    (draft_field_names, draft_field_types),
+                ) = named_fields_util(&fields_named, &draft_instance_name, true);
+
+                quote! {
+                    pub struct #draft_name {
+                        #(pub #draft_field_names: #draft_field_types),*
+                    }
+
+                    impl From<#name> for #draft_name {
+                        fn from(#instance_name: #name) -> #draft_name {
+                            #draft_name {
+                                #(#draft_field_names: #instance_name.#draft_field_names),*
+                            }
+                        }
+                    }
+
+                    impl TryFrom<#draft_name> for #name {
+                        type Error = #error_name;
+
+                        fn try_from(#draft_instance_name: #draft_name) -> Result<Self, Self::Error> {
+                            #name::validate(#name {
+                                #(#field_names: #field_instances),*
+                            })
+                        }
+                    }
+                }
+            },
+            syn::Fields::Unnamed(fields_unnamed) => {
+                let (field_types, indices) = unnamed_fields_util(&fields_unnamed);
+                quote! {
+                    pub struct #draft_name(
+                        #(pub #field_types),*
+                    );
+
+                    impl From<#name> for #draft_name {
+                        fn from(#instance_name: #name) -> #draft_name {
+                            #draft_name(
+                                #(#instance_name.#indices),*
+                            )
+                        }
+                    }
+
+                    impl TryFrom<#draft_name> for #name {
+                        type Error = #error_name;
+
+                        fn try_from(draft: #draft_name) -> Result<Self, Self::Error> {
+                            #name::validate(#name(
+                                #(draft.#indices),*
+                            ))
+                        }
+                    }
+                }
+            },
+            syn::Fields::Unit => {
+                quote! {
+                    pub struct #draft_name;
+
+                    impl From<#name> for #draft_name {
+                        fn from(#instance_name: #name) -> #draft_name {
+                            #draft_name
+                        }
+                    }
+
+                    impl TryFrom<#draft_name> for #name {
+                        type Error = #error_name;
+
+                        fn try_from(_: #draft_name) -> Result<Self, Self::Error> {
+                            #name::validate(#name)
+                        }
+                    }
+                }
+            },
         },
-        _ => unreachable!(),
+        syn::Data::Enum(data_enum) => {
+            let (variant_idents, variant_tokens) = transpose_2(data_enum.variants
+                .iter()
+                .map(|variant| (
+                    variant.ident.clone(),
+                    match &variant.fields {
+                        syn::Fields::Named(fields_named) => {
+                            let (
+                                (field_names, field_instances),
+                                (draft_field_names, draft_field_types),
+                            ) = named_fields_util(&fields_named, &draft_instance_name, false);
+                            (
+                                quote! { { #(#draft_field_names: #draft_field_types,)* } },
+                                quote! { { #(#draft_field_names,)* } },
+                                quote! { { #(#draft_field_names: #draft_field_names,)* } },
+                                quote! { { #(#draft_field_names,)* .. } },
+                                quote! { { #(#field_names: #field_instances,)* } },
+                            )
+                        },
+                        syn::Fields::Unnamed(fields_unnamed) => {
+                            let (field_types, indices) = unnamed_fields_util(&fields_unnamed);
+                            let field_names: Vec<_> = indices.into_iter().map(|index| format_ident!("_{}", index)).collect();
+                            (
+                                quote! { ( #(#field_types,)* ) },
+                                quote! { ( #(#field_names,)* ) },
+                                quote! { ( #(#field_names,)* ) },
+                                quote! { ( #(#field_names,)* .. ) },
+                                quote! { ( #(#field_names,)* ) },
+                            )
+                        },
+                        syn::Fields::Unit => (quote! {}, quote! {}, quote! {}, quote! {}, quote! {}),
+                    },
+                ))
+                .collect()
+            );
+            let (draft_defs, draft_expansions, draft_instances, expansions, instances) = transpose_5(variant_tokens);
+            quote! {
+                pub enum #draft_name {
+                    #(#variant_idents #draft_defs),*
+                }
+
+                impl From<#name> for #draft_name {
+                    fn from(#instance_name: #name) -> #draft_name {
+                        match #instance_name {
+                            #(#name::#variant_idents #expansions => #draft_name::#variant_idents #draft_instances),*
+                        }
+                    }
+                }
+
+                impl TryFrom<#draft_name> for #name {
+                    type Error = #error_name;
+
+                    fn try_from(#draft_instance_name: #draft_name) -> Result<Self, Self::Error> {
+                        #name::validate(match #draft_instance_name {
+                            #(#draft_name::#variant_idents #draft_expansions => #name::#variant_idents #instances),*
+                        })
+                    }
+                }
+            }
+        },
+        syn::Data::Union(_) => panic!("TryNew is not supported for union data types"),
     };
 
-    let gen = quote! {
-        impl #name {
-            pub fn try_new(#(#signature_field_names: #signature_field_types),*) -> Result<#name, #error_name> {
-                #name::validate(#instance)
-            }
-        }
-    };
     gen.into()
 }
