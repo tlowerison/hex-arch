@@ -1,17 +1,17 @@
 [package]
 name = "hex_arch"
-version = "0.2.6"
+version = "0.2.7"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
 [dependencies]
-hex_arch_getters = { path = "./getters", optional = true }
+hex_arch_accessors = { path = "./accessors", optional = true }
 hex_arch_repositories = { path = "./repositories", optional = true }
 hex_arch_try_new = { path = "./try-new", optional = true }
 
 [features]
 default = []
-getters = ["hex_arch_getters"]
+accessors = ["hex_arch_accessors"]
 repositories = ["hex_arch_repositories"]
 serde = ["hex_arch_repositories/serde"]
 try_new = ["hex_arch_try_new"]
