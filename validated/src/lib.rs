@@ -16,7 +16,7 @@ fn is_matching_attr(attr: &Attribute) -> bool {
     }
     let first_segment = path.segments.first().unwrap();
     if let PathArguments::None = first_segment.arguments {
-        if format!("{}", first_segment.ident) == "try_new_default" {
+        if format!("{}", first_segment.ident) == "generate_valid" {
             return true;
         }
     }
@@ -80,7 +80,7 @@ fn unnamed_fields_util(fields_unnamed: &syn::FieldsUnnamed) -> (Vec<Type>, Vec<u
         .map(|field| {
             for attr in field.attrs.iter() {
                 if is_matching_attr(&attr) {
-                    panic!("try_new_default attribute cannot be attached to unnamed fields");
+                    panic!("generate_valid attribute cannot be attached to unnamed fields");
                 }
             }
             field.ty.clone()
