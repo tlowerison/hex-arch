@@ -1,6 +1,6 @@
 [package]
-name = "hex_arch_try_new"
-version = "0.2.6"
+name = "hex_arch_validated"
+version = "0.2.8"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 

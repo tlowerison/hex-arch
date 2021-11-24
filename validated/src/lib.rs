@@ -92,8 +92,8 @@ fn unnamed_fields_util(fields_unnamed: &syn::FieldsUnnamed) -> (Vec<Type>, Vec<u
     (field_types, indices)
 }
 
-#[proc_macro_derive(TryNew, attributes(try_new_default))]
-pub fn derive_try_new(item: TokenStream) -> TokenStream {
+#[proc_macro_derive(Validated, attributes(generate_valid))]
+pub fn validated(item: TokenStream) -> TokenStream {
     let ast: syn::DeriveInput = syn::parse(item).unwrap();
 
     let name = &ast.ident;
