@@ -1583,6 +1583,8 @@ pub mod write_repositories {
             let plural = repository.plural();
             let sync_ptr = repository.sync_ptr();
             let read_repositories = repository.read_repositories();
+            let relation_snakes = repository.relation_snakes();
+            let relation_tys = repository.relation_tys();
 
             quote! {
                 hex_arch_paste! {
@@ -1593,6 +1595,18 @@ pub mod write_repositories {
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Insert #ty Builder>]<Adaptor> {
+                        #(
+                            pub fn [<load_ #relation_snakes>](mut self) -> [<Insert #ty Builder>]<Adaptor> {
+                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
+                                self
+                            }
+
+                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Insert #ty Builder>]<Adaptor> {
+                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
+                                self
+                            }
+                        )*
+
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_record = {
                                 let _write_lock = Adaptor::write()?;
@@ -1621,6 +1635,8 @@ pub mod write_repositories {
             let plural = repository.plural();
             let sync_ptr = repository.sync_ptr();
             let read_repositories = repository.read_repositories();
+            let relation_snakes = repository.relation_snakes();
+            let relation_tys = repository.relation_tys();
 
             quote! {
                 hex_arch_paste! {
@@ -1631,6 +1647,18 @@ pub mod write_repositories {
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Insert #ty sBuilder>]<Adaptor> {
+                        #(
+                            pub fn [<load_ #relation_snakes>](mut self) -> [<Insert #ty sBuilder>]<Adaptor> {
+                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
+                                self
+                            }
+
+                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Insert #ty sBuilder>]<Adaptor> {
+                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
+                                self
+                            }
+                        )*
+
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_records = {
                                 let _write_lock = Adaptor::write()?;
@@ -1660,6 +1688,8 @@ pub mod write_repositories {
             let plural = repository.plural();
             let sync_ptr = repository.sync_ptr();
             let read_repositories = repository.read_repositories();
+            let relation_snakes = repository.relation_snakes();
+            let relation_tys = repository.relation_tys();
 
             quote! {
                 hex_arch_paste! {
@@ -1670,6 +1700,18 @@ pub mod write_repositories {
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Update #ty Builder>]<Adaptor> {
+                        #(
+                            pub fn [<load_ #relation_snakes>](mut self) -> [<Update #ty Builder>]<Adaptor> {
+                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
+                                self
+                            }
+
+                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Update #ty Builder>]<Adaptor> {
+                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
+                                self
+                            }
+                        )*
+
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_record = {
                                 let _write_lock = Adaptor::write()?;
@@ -1698,6 +1740,8 @@ pub mod write_repositories {
             let plural = repository.plural();
             let sync_ptr = repository.sync_ptr();
             let read_repositories = repository.read_repositories();
+            let relation_snakes = repository.relation_snakes();
+            let relation_tys = repository.relation_tys();
 
             quote! {
                 hex_arch_paste! {
@@ -1708,6 +1752,18 @@ pub mod write_repositories {
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Update #ty sBuilder>]<Adaptor> {
+                        #(
+                            pub fn [<load_ #relation_snakes>](mut self) -> [<Update #ty sBuilder>]<Adaptor> {
+                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
+                                self
+                            }
+
+                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Update #ty sBuilder>]<Adaptor> {
+                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
+                                self
+                            }
+                        )*
+
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_records = {
                                 let _write_lock = Adaptor::write()?;
