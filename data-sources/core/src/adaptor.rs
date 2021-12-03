@@ -390,10 +390,6 @@ pub fn repository_impl(
     let (read_repository, load_ids_by) = read_repository_impl(adaptor_name, entity_prefix, namespaces, ids, repository_input, repositories_input, adaptor_entity_input_opt.as_ref());
     let write_repository = write_repository_impl(adaptor_name, entity_prefix, namespaces, ids, repository_input, adaptor_entity_input_opt.as_ref(), repositories_and_adaptor_entity_inputs);
 
-    // if &*repository_input.ty() == "Rule" {
-    //     println!("{}", write_repository);
-    // }
-
     (quote! { #base_repository #read_repository #write_repository }, load_ids_by)
 }
 
@@ -680,18 +676,30 @@ pub fn write_repository_impl(
 
     let mut insert_body = quote! {
         hex_arch_paste! {
+            if [<#singular _posts>].len() == 0 {
+                return Ok(vec![])
+            }
+
             let [<adaptor_ #singular _posts>]: Vec<[<#entity_prefix #ty Post>]> = [<#singular _posts>].into_iter().map(|post| post.into()).collect();
             Ok(insert! { #ty, #namespace, [<adaptor_ #singular _posts>], client })
         }
     };
     let mut update_body = quote! {
         hex_arch_paste! {
+            if [<#singular _patches>].len() == 0 {
+                return Ok(vec![])
+            }
+
             let [<adaptor_ #singular _patches>]: Vec<[<#entity_prefix #ty Patch>]> = [<#singular _patches>].into_iter().map(|patch| patch.into()).collect();
             Ok(update! { #ty, #namespace, [<adaptor_ #singular _patches>], client })
         }
     };
     let mut delete_body = quote! {
         hex_arch_paste! {
+            if [<#singular _ids>].len() == 0 {
+                return Ok(0)
+            }
+
             let [<deleted_ #plural>] = delete! { #ty, #namespace, #id, client, [<#singular _ids>] };
             Ok([<deleted_ #plural>].len())
         }
@@ -806,6 +814,10 @@ pub fn write_repository_impl(
                         .collect();
 
                     quote! {
+                        if [<#singular _posts>].len() == 0 {
+                            return Ok(vec![])
+                        }
+
                         let [<full_ #singular _posts>]: Vec<#full_ty> = [<#singular _posts>].into_iter().map(|post| post.into()).collect();
 
                         let (mut [<adaptor_ #singular _posts>], all_child_posts) = transpose(
@@ -825,11 +837,11 @@ pub fn write_repository_impl(
 
                         #( #flattened_reverse_linked_child_posts_before_parent_inserts )*
 
-                        let [<adaptor_ #plural>] = insert! { #ty, #namespace, [<adaptor_ #singular _posts>], client };
-
                         for ([<adaptor_ #singular _post>] #(, #reverse_linked_child_snakes )*) in hex_arch_izip!([<adaptor_ #singular _posts>].iter_mut() #(, #reverse_linked_child_plurals.into_iter() )*) {
                             #( #flattened_reverse_linked_child_posts_after_parent_inserts )*
                         }
+
+                        let [<adaptor_ #plural>] = insert! { #ty, #namespace, [<adaptor_ #singular _posts>], client };
 
                         #( #flattened_child_posts )*
 
@@ -929,6 +941,10 @@ pub fn write_repository_impl(
                         .collect();
 
                     quote! {
+                        if [<#singular _patches>].len() == 0 {
+                            return Ok(vec![])
+                        }
+
                         let [<full_ #singular _patches>]: Vec<#full_ty> = [<#singular _patches>].into_iter().map(|patch| patch.into()).collect();
 
                         let ([<adaptor_ #singular _patches>], all_child_payloads) = transpose(
@@ -1026,6 +1042,10 @@ fn get_delete_body(
 
     quote! {
         hex_arch_paste! {
+            if [<#singular _ids>].len() == 0 {
+                return Ok(0)
+            }
+
             #(
                 let [<num_deleted_ #child_plurals>] = Self::[<delete_ #child_plurals>](
                     Self::[<load_ #child_singulars _ids_by_ #singular _ids>]([<#singular _ids>].clone(), client)?,
