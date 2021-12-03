@@ -11,6 +11,12 @@ macro_rules! maybe_some {
 }
 
 #[macro_export]
+macro_rules! maybe_unreachable {
+    (!) => { #[allow(unreachable_code)] unreachable!() };
+    (?) => { None };
+}
+
+#[macro_export]
 macro_rules! unwrap_helper_field {
     (!, $ident:ident, $helper_ident:ident, $field_ident:ident) => {
         $helper_ident.$field_ident.ok_or_else(|| syn::Error::new(
@@ -24,7 +30,7 @@ macro_rules! unwrap_helper_field {
 }
 
 #[macro_export]
-macro_rules! optional_fields {
+macro_rules! fields {
     (
         $fields_ident:ident {
             $(
@@ -96,6 +102,14 @@ macro_rules! optional_fields {
             impl syn::parse::Parse for [<$fields_ident Fields>] {
                 fn parse(input: ParseStream) -> syn::Result<Self> {
                     let mut fields_helper = [<$fields_ident FieldsHelper>]::default();
+                    if input.is_empty() {
+                        #[allow(unreachable_code)]
+                        return Ok([<$fields_ident Fields>] {
+                            $(
+                                $field_ident: { $crate::maybe_unreachable!($opt) }
+                            ),*
+                        });
+                    }
 
                     let last_ident = loop {
                         let field: [<$fields_ident Field>] = input.parse()?;

@@ -3,7 +3,7 @@ use crate::input::*;
 use proc_macro2::TokenStream as TokenStream2;
 use syn::Ident;
 
-pub (crate) fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream2 {
+pub fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream2 {
     let read_repositories = read_repositories::read_repositories(&input, todo);
     let write_repositories = write_repositories::write_repositories(&input, todo);
 
@@ -21,7 +21,7 @@ pub (crate) fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream
     let namespaced: TokenStream2 = input.name
         .as_ref()
         .map(|name| quote! {
-            repositories_paste! {
+            hex_arch_paste! {
                 pub trait [<#name ReadRepository>] = #([<#readables ReadRepository>])+*;
                 pub trait [<#name ReadWriteRepository>] = [<#name ReadRepository>] + #([<#writables WriteRepository>])+*;
             }
@@ -43,10 +43,10 @@ pub (crate) fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream
     }
 }
 
-pub (crate) mod read_repositories {
+pub mod read_repositories {
     use super::*;
 
-    pub (crate) fn read_repositories(input: &RepositoriesInput, todo: bool) -> TokenStream2 {
+    pub fn read_repositories(input: &RepositoriesInput, todo: bool) -> TokenStream2 {
         let read_repositories: Vec<_> = input.repositories
             .iter()
             .map(|repository| {
@@ -96,7 +96,7 @@ pub (crate) mod read_repositories {
         let ty = repository.ty();
         let sync_ptr = repository.sync_ptr();
         quote! {
-            repositories_paste! {
+            hex_arch_paste! {
                 pub type [<#ty Entity>] = Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>;
             }
         }
@@ -108,7 +108,7 @@ pub (crate) mod read_repositories {
         let relation_snakes = repository.relation_snakes();
 
         quote! {
-            repositories_paste! {
+            hex_arch_paste! {
                 #[derive(Clone, Debug)]
                 pub struct [<Load #ty Relations>] {
                     #(pub #relation_snakes: Option<Box<[<Load #relation_tys Relations>]>>),*
@@ -148,7 +148,7 @@ pub (crate) mod read_repositories {
             .collect();
 
         quote! {
-            repositories_paste! {
+            hex_arch_paste! {
                 #[derive(Clone, Debug)]
                 pub struct [<Loaded #ty Relations>] {
                     #(pub #relation_snakes: #relation_types),*
@@ -171,17 +171,17 @@ pub (crate) mod read_repositories {
 
         match relation.cardinality {
             Cardinality::One => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     Option<Box<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>>
                 }
             },
             Cardinality::OneOrNone => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     Option<Box<Option<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>>>
                 }
             },
             Cardinality::AtLeastOne|Cardinality::Many => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     Option<Box<Vec<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>>>
                 }
             },
@@ -192,7 +192,7 @@ pub (crate) mod read_repositories {
         let ty = repository.ty();
         let id_type = &repository.id_type;
         quote! {
-            repositories_paste! {
+            hex_arch_paste! {
                 pub trait [<#ty BaseRepository>]: BaseRepository {
                     type Id: Sized + Clone + Eq + From<#id_type> + PartialEq + std::hash::Hash + 'static;
                     type Record: Clone + Sized + AsRef<Self::Id> + Into<Self::Id> + Into<#ty> + 'static;
@@ -201,11 +201,11 @@ pub (crate) mod read_repositories {
         }
     }
 
-    pub (crate) mod ty_read_repository {
+    pub mod ty_read_repository {
         use super::*;
         use shared::*;
 
-        pub (crate) fn ty_read_repository(repository: &RepositoryInput, input: &RepositoriesInput, todo: bool) -> TokenStream2 {
+        pub fn ty_read_repository(repository: &RepositoryInput, input: &RepositoriesInput, todo: bool) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -216,26 +216,13 @@ pub (crate) mod read_repositories {
 
             let entity_storage = entity_storage(repository, todo);
 
-            let inward_relations: Vec<_> = input.repositories
-                .iter()
-                .map(|rep|
-                    rep.relations
-                        .iter()
-                        .filter_map(|relation|
-                            if *relation.ty() == *repository.ty() {
-                                Some((relation.clone(), rep.clone()))
-                            } else {
-                                None
-                            }
-                        )
-                        .collect::<Vec<_>>()
-                )
-                .flatten()
-                .collect();
+            let inward_relations = repository.inward_relations(input);
+
+            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
 
             let load_by_multiples: Vec<_> = inward_relations
                 .iter()
-                .map(|(relation, relation_repository)| load_by_multiple(relation, repository, relation_repository, todo))
+                .map(|(relation, relation_repository)| load_by_multiple(relation, repository, relation_repository, &body))
                 .collect();
             let get_by_singles: Vec<_> = inward_relations
                 .iter()
@@ -249,13 +236,11 @@ pub (crate) mod read_repositories {
             let load_by_field_multiples: Vec<_> = repository
                 .load_bys
                 .iter()
-                .map(|load_by| load_by_field_multiple(repository, load_by, todo))
+                .map(|load_by| load_by_field_multiple(repository, load_by, &body))
                 .collect();
 
-            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
-
             let todo_fns = quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     #entity_storage
 
                     fn [<load_ #plural>](
@@ -296,7 +281,7 @@ pub (crate) mod read_repositories {
 
             if todo {
                 quote! {
-                    repositories_paste! {
+                    hex_arch_paste! {
                         pub trait [<#ty ReadRepository>]: [<#ty BaseRepository>] {
                             #todo_fns
                         }
@@ -304,7 +289,7 @@ pub (crate) mod read_repositories {
                 }
             } else {
                 quote! {
-                    repositories_paste! {
+                    hex_arch_paste! {
                         pub trait [<#ty ReadRepository>]: [<#ty BaseRepository>] {
                             #todo_fns
 
@@ -332,7 +317,7 @@ pub (crate) mod read_repositories {
             let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
 
             let todo_fns = quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn [<#plural _mut>](&mut self) -> &mut std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Id, (#sync_ptr<#ty>, #sync_ptr<<Self as [<#ty BaseRepository>]>::Record>)>
                     where
                         Self: #read_repositories
@@ -342,13 +327,13 @@ pub (crate) mod read_repositories {
 
             if todo {
                 quote! {
-                    repositories_paste! {
+                    hex_arch_paste! {
                         #todo_fns
                     }
                 }
             } else {
                 quote! {
-                    repositories_paste! {
+                    hex_arch_paste! {
                         #todo_fns
 
                         fn [<store_ #singular>](&mut self, #singular: <Self as [<#ty BaseRepository>]>::Record)-> (#sync_ptr<#ty>, #sync_ptr<<Self as [<#ty BaseRepository>]>::Record>)
@@ -364,7 +349,7 @@ pub (crate) mod read_repositories {
                             Self: #read_repositories
                         {
                             let [<stored_ #plural>] = self.[<#plural _mut>]();
-                            repositories_transpose_2(
+                            hex_arch_transpose_2(
                                 [<adaptor_ #plural>]
                                     .into_iter()
                                     .map(|[<adaptor_ #singular>]| {
@@ -390,7 +375,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn get_singular(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_singular(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let relation_snakes = repository.relation_snakes();
@@ -403,7 +388,7 @@ pub (crate) mod read_repositories {
                 .collect();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn [<get_ #singular>](
                         &mut self,
                         #singular: <Self as [<#ty BaseRepository>]>::Record,
@@ -436,7 +421,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn get_multiple(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_multiple(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -450,7 +435,7 @@ pub (crate) mod read_repositories {
                 .collect();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn [<get_ #plural>](
                         &mut self,
                         #plural: Vec<<Self as [<#ty BaseRepository>]>::Record>,
@@ -484,7 +469,7 @@ pub (crate) mod read_repositories {
                             .map(|record| record.deref().as_ref().clone().into())
                             .collect();
 
-                        for (record, loaded_relations) in repositories_izip!(records.into_iter(), all_loaded_relations.into_iter()) {
+                        for (record, loaded_relations) in hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter()) {
                             let record_id: <Self as [<#ty BaseRepository>]>::Id = record.deref().as_ref().clone().into();
                             if entities.contains_key(&record_id) {
                                 entities.get_mut(&record_id).unwrap().push(Entity {
@@ -516,7 +501,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn try_get_singular(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn try_get_singular(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let relation_snakes = repository.relation_snakes();
@@ -529,7 +514,7 @@ pub (crate) mod read_repositories {
                 .collect();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn [<try_get_ #singular>](
                         &mut self,
                         adaptor_record_option: Option<<Self as [<#ty BaseRepository>]>::Record>,
@@ -567,7 +552,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn try_get_multiple(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn try_get_multiple(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_snakes = repository.relation_snakes();
@@ -580,7 +565,7 @@ pub (crate) mod read_repositories {
                 .collect();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn [<try_get_ #plural>](
                         &mut self,
                         adaptor_record_options: Vec<Option<<Self as [<#ty BaseRepository>]>::Record>>,
@@ -593,7 +578,7 @@ pub (crate) mod read_repositories {
                     where
                         Self: #read_repositories
                     {
-                        let (#plural, indices_of_existing_records) = repositories_transpose_2::<<Self as [<#ty BaseRepository>]>::Record, usize>(
+                        let (#plural, indices_of_existing_records) = hex_arch_transpose_2::<<Self as [<#ty BaseRepository>]>::Record, usize>(
                             adaptor_record_options
                                 .into_iter()
                                 .enumerate()
@@ -615,7 +600,7 @@ pub (crate) mod read_repositories {
                         let mut entity_options: Vec<Option<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>> = Vec::with_capacity(records.len());
 
                         let mut option_index = 0;
-                        for (i, (record, loaded_relations)) in repositories_izip!(records.into_iter(), all_loaded_relations.into_iter()).enumerate() {
+                        for (i, (record, loaded_relations)) in hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter()).enumerate() {
                             let desired_option_index = indices_of_existing_records[i];
                             while option_index < desired_option_index {
                                 entity_options.push(None);
@@ -633,22 +618,20 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn load_by_multiple(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput, todo: bool) -> TokenStream2 {
+        pub fn load_by_multiple(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
             let ty = repository.ty();
             let relation_ty = relation_repository.ty();
             let relation_plural = relation_repository.plural();
             let load_by_multiple_fn_name = op_by_multiple_fn_name("load", relation, relation_repository);
 
-            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
-
             let return_ty = match relation.cardinality {
-                Cardinality::One => { quote! { repositories_paste! {
+                Cardinality::One => { quote! { hex_arch_paste! {
                     Vec<<Self as [<#ty BaseRepository>]>::Record>
                 } } },
-                Cardinality::OneOrNone => { quote! { repositories_paste! {
+                Cardinality::OneOrNone => { quote! { hex_arch_paste! {
                     Vec<Option<<Self as [<#ty BaseRepository>]>::Record>>
                 } } },
-                Cardinality::Many|Cardinality::AtLeastOne => { quote! { repositories_paste! {
+                Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
                     Vec<(
                         <Self as [<#ty BaseRepository>]>::Record,
                         <Self as [<#relation_ty BaseRepository>]>::Id,
@@ -657,7 +640,7 @@ pub (crate) mod read_repositories {
             };
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn #load_by_multiple_fn_name(
                         #relation_plural: &Vec<&<Self as [<#relation_ty BaseRepository>]>::Record>,
                         client: Self::Client<'_>,
@@ -669,7 +652,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn get_by_single(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_by_single(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -692,13 +675,13 @@ pub (crate) mod read_repositories {
             let load_by_multiple_fn_name = op_by_multiple_fn_name("load", relation, relation_repository);
 
             let return_ty = match relation.cardinality {
-                Cardinality::One => { quote! { repositories_paste! {
+                Cardinality::One => { quote! { hex_arch_paste! {
                     Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>
                 } } },
-                Cardinality::OneOrNone => { quote! { repositories_paste! {
+                Cardinality::OneOrNone => { quote! { hex_arch_paste! {
                     Option<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>
                 } } },
-                Cardinality::Many|Cardinality::AtLeastOne => { quote! { repositories_paste! {
+                Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
                     Vec<(
                         Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>,
                         <Self as [<#ty BaseRepository>]>::Id,
@@ -708,7 +691,7 @@ pub (crate) mod read_repositories {
             };
 
             let body = match relation.cardinality {
-                Cardinality::One => quote! { repositories_paste! {
+                Cardinality::One => quote! { hex_arch_paste! {
                     let adaptor_record = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?.pop().unwrap();
 
                     let (record, #singular) = self.[<store_ #singular>](adaptor_record);
@@ -727,7 +710,7 @@ pub (crate) mod read_repositories {
                         relations: loaded_relations,
                     })
                 } },
-                Cardinality::OneOrNone => quote! { repositories_paste! {
+                Cardinality::OneOrNone => quote! { hex_arch_paste! {
                     let adaptor_record_option = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?.pop().unwrap();
 
                     let adaptor_record = match adaptor_record_option {
@@ -751,7 +734,7 @@ pub (crate) mod read_repositories {
                         relations: loaded_relations,
                     }))
                 } },
-                Cardinality::Many => quote! { repositories_paste! {
+                Cardinality::Many => quote! { hex_arch_paste! {
                     let [<#relation_singular _id>] = #relation_singular.as_ref().clone();
 
                     let adaptor_records: Vec<_> = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?
@@ -771,7 +754,7 @@ pub (crate) mod read_repositories {
                     )*
 
                     Ok(
-                        repositories_izip!(records.into_iter(), all_loaded_relations.into_iter())
+                        hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter())
                             .map(|(record, loaded_relations)| {
                                 let record_id: <Self as [<#ty BaseRepository>]>::Id = record.deref().as_ref().clone().into();
                                 (
@@ -786,7 +769,7 @@ pub (crate) mod read_repositories {
                             .collect()
                     )
                 } },
-                Cardinality::AtLeastOne => quote! { repositories_paste! {
+                Cardinality::AtLeastOne => quote! { hex_arch_paste! {
                     let [<#relation_singular _id>] = #relation_singular.as_ref().clone();
 
                     let adaptor_records: Vec<_> = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?
@@ -810,7 +793,7 @@ pub (crate) mod read_repositories {
                     )*
 
                     Ok(
-                        repositories_izip!(records.into_iter(), all_loaded_relations.into_iter())
+                        hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter())
                             .map(|(record, loaded_relations)| {
                                 let record_id: <Self as [<#ty BaseRepository>]>::Id = record.deref().as_ref().clone().into();
                                 (
@@ -828,7 +811,7 @@ pub (crate) mod read_repositories {
             };
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn #get_by_single_fn_name(&mut self, #relation_singular: &<Self as [<#relation_ty BaseRepository>]>::Record, load_relations: &[<Load #ty Relations>], client: Self::Client<'_>) -> Result<#return_ty, Self::Error>
                     where
                         Self: #read_repositories
@@ -839,7 +822,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn get_by_multiple(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_by_multiple(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_snakes = repository.relation_snakes();
@@ -857,13 +840,13 @@ pub (crate) mod read_repositories {
             let load_by_multiple_fn_name = op_by_multiple_fn_name("load", relation, relation_repository);
 
             let return_ty = match relation.cardinality {
-                Cardinality::One => { quote! { repositories_paste! {
+                Cardinality::One => { quote! { hex_arch_paste! {
                     Vec<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>
                 } } },
-                Cardinality::OneOrNone => { quote! { repositories_paste! {
+                Cardinality::OneOrNone => { quote! { hex_arch_paste! {
                     Vec<Option<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>>
                 } } },
-                Cardinality::Many|Cardinality::AtLeastOne => { quote! { repositories_paste! {
+                Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
                     Vec<(
                         Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>,
                         <Self as [<#ty BaseRepository>]>::Id,
@@ -873,7 +856,7 @@ pub (crate) mod read_repositories {
             };
 
             let body = match relation.cardinality {
-                Cardinality::One => quote! { repositories_paste! {
+                Cardinality::One => quote! { hex_arch_paste! {
                     let num_requested_records = #relation_plural.len();
                     let adaptor_records = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
 
@@ -893,7 +876,7 @@ pub (crate) mod read_repositories {
                     )*
 
                     Ok(
-                        repositories_izip!(records.into_iter(), all_loaded_relations.into_iter())
+                        hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter())
                             .map(|(record, loaded_relations)| Entity {
                                 value: record,
                                 relations: loaded_relations,
@@ -901,7 +884,7 @@ pub (crate) mod read_repositories {
                             .collect()
                     )
                 } },
-                Cardinality::OneOrNone => quote! { repositories_paste! {
+                Cardinality::OneOrNone => quote! { hex_arch_paste! {
                     let num_requested_records = #relation_plural.len();
                     let adaptor_record_options =Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
 
@@ -909,7 +892,7 @@ pub (crate) mod read_repositories {
                         return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found());
                     }
 
-                    let (adaptor_records, indices_of_existing_records) = repositories_transpose_2::<<Self as [<#ty BaseRepository>]>::Record, usize>(
+                    let (adaptor_records, indices_of_existing_records) = hex_arch_transpose_2::<<Self as [<#ty BaseRepository>]>::Record, usize>(
                         adaptor_record_options
                             .into_iter()
                             .enumerate()
@@ -934,7 +917,7 @@ pub (crate) mod read_repositories {
                     >>> = Vec::with_capacity(num_requested_records);
 
                     let mut option_index = 0;
-                    for (i, (record, loaded_relations)) in repositories_izip!(records.into_iter(), all_loaded_relations.into_iter()).enumerate() {
+                    for (i, (record, loaded_relations)) in hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter()).enumerate() {
                         let desired_option_index = indices_of_existing_records[i];
                         while option_index < desired_option_index {
                             entity_options.push(None);
@@ -948,15 +931,15 @@ pub (crate) mod read_repositories {
 
                     Ok(entity_options)
                 } },
-                Cardinality::Many => quote! { repositories_paste! {
+                Cardinality::Many => quote! { hex_arch_paste! {
                     let adaptor_records_and_parent_ids = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
 
-                    let (adaptor_records, parent_ids) = repositories_transpose_2(adaptor_records_and_parent_ids);
+                    let (adaptor_records, parent_ids) = hex_arch_transpose_2(adaptor_records_and_parent_ids);
 
                     let (records, [<#plural _ptrs>]) = self.[<store_ #plural>](adaptor_records);
                     let #plural: Vec<_> = [<#plural _ptrs>].iter().map(|[<#plural _ptr>]| [<#plural _ptr>].deref()).collect();
 
-                    let records_and_parent_ids: Vec<_> = repositories_izip!(records.into_iter(), parent_ids.into_iter()).collect();
+                    let records_and_parent_ids: Vec<_> = hex_arch_izip!(records.into_iter(), parent_ids.into_iter()).collect();
 
                     let unique_record_ids: Vec<<Self as [<#ty BaseRepository>]>::Id> = records_and_parent_ids
                         .iter()
@@ -973,7 +956,7 @@ pub (crate) mod read_repositories {
                         }
                     )*
 
-                    let all_loaded_relations: std::collections::HashMap<_, _> = repositories_izip!(
+                    let all_loaded_relations: std::collections::HashMap<_, _> = hex_arch_izip!(
                         unique_record_ids.into_iter(),
                         all_loaded_relations.into_iter(),
                     ).collect();
@@ -995,7 +978,7 @@ pub (crate) mod read_repositories {
                             .collect()
                     )
                 } },
-                Cardinality::AtLeastOne => quote! { repositories_paste! {
+                Cardinality::AtLeastOne => quote! { hex_arch_paste! {
                     let adaptor_records_and_parent_ids = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
 
                     let unique_parent_ids_found: Vec<_> = adaptor_records_and_parent_ids
@@ -1008,12 +991,12 @@ pub (crate) mod read_repositories {
                         return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found());
                     }
 
-                    let (adaptor_records, parent_ids) = repositories_transpose_2(adaptor_records_and_parent_ids);
+                    let (adaptor_records, parent_ids) = hex_arch_transpose_2(adaptor_records_and_parent_ids);
 
                     let (records, [<#plural _ptrs>]) = self.[<store_ #plural>](adaptor_records);
                     let #plural: Vec<_> = [<#plural _ptrs>].iter().map(|ptr| ptr.deref()).collect();
 
-                    let records_and_parent_ids: Vec<_> = repositories_izip!(records.into_iter(), parent_ids.into_iter()).collect();
+                    let records_and_parent_ids: Vec<_> = hex_arch_izip!(records.into_iter(), parent_ids.into_iter()).collect();
 
                     let unique_record_ids: Vec<<Self as [<#ty BaseRepository>]>::Id> = records_and_parent_ids
                         .iter()
@@ -1030,7 +1013,7 @@ pub (crate) mod read_repositories {
                         }
                     )*
 
-                    let all_loaded_relations: std::collections::HashMap<_, _> = repositories_izip!(
+                    let all_loaded_relations: std::collections::HashMap<_, _> = hex_arch_izip!(
                         unique_record_ids.into_iter(),
                         all_loaded_relations.into_iter(),
                     ).collect();
@@ -1055,7 +1038,7 @@ pub (crate) mod read_repositories {
             };
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn #get_by_multiple_fn_name(&mut self, #relation_plural: &Vec<&<Self as [<#relation_ty BaseRepository>]>::Record>, load_relations: &[<Load #ty Relations>], client: Self::Client<'_>) -> Result<#return_ty, Self::Error>
                     where
                         Self: #read_repositories
@@ -1066,28 +1049,29 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn load_by_field_multiple(repository: &RepositoryInput, load_by: &LoadByInput, todo: bool) -> TokenStream2 {
+        pub fn get_load_by_field_multiple_fn_name(repository: &RepositoryInput, load_by: &LoadByInput) -> Ident {
+            format_ident!("load_{}_by_{}", repository.plural(), load_by.plural())
+        }
+
+        pub fn load_by_field_multiple(repository: &RepositoryInput, load_by: &LoadByInput, body: &TokenStream2) -> TokenStream2 {
             let ty = repository.ty();
-            let plural = repository.plural();
 
             let load_by_ty = load_by.ty();
             let load_by_plural = load_by.plural();
 
-            let load_by_field_multiple_fn_name = format_ident!("load_{}_by_{}", plural, load_by_plural);
-
-            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
+            let load_by_field_multiple_fn_name = get_load_by_field_multiple_fn_name(repository, load_by);
 
             let return_ty = match load_by.cardinality {
-                Cardinality::One|Cardinality::Many|Cardinality::AtLeastOne => { quote! { repositories_paste! {
+                Cardinality::One|Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
                     Vec<<Self as [<#ty BaseRepository>]>::Record>
                 } } },
-                Cardinality::OneOrNone => { quote! { repositories_paste! {
+                Cardinality::OneOrNone => { quote! { hex_arch_paste! {
                     Vec<Option<<Self as [<#ty BaseRepository>]>::Record>>
                 } } },
             };
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     fn #load_by_field_multiple_fn_name(
                         #load_by_plural: Vec<#load_by_ty>,
                         client: Self::Client<'_>,
@@ -1097,7 +1081,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn get_by_field(repository: &RepositoryInput, load_by: &LoadByInput) -> TokenStream2 {
+        pub fn get_by_field(repository: &RepositoryInput, load_by: &LoadByInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let read_repositories = repository.read_repositories();
@@ -1109,7 +1093,7 @@ pub (crate) mod read_repositories {
             let load_by_field_multiple_fn_name = format_ident!("load_{}_by_{}", plural, load_by_plural);
 
             match load_by.cardinality {
-                Cardinality::One => quote! { repositories_paste! {
+                Cardinality::One => quote! { hex_arch_paste! {
                     impl #ty {
                         pub fn [<get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_singular: #load_by_ty) -> [<Get #ty Builder>]<Adaptor> {
                             [<Get #ty Builder>] {
@@ -1135,7 +1119,7 @@ pub (crate) mod read_repositories {
                         }
                     }
                 } },
-                Cardinality::Many => quote! { repositories_paste! {
+                Cardinality::Many => quote! { hex_arch_paste! {
                     impl #ty {
                         pub fn [<get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_singular: #load_by_ty) -> [<Get #ty sBuilder>]<Adaptor> {
                             [<Get #ty sBuilder>] {
@@ -1163,12 +1147,29 @@ pub (crate) mod read_repositories {
                 _ => unreachable!(),
             }
         }
+
+        pub fn load_ids_by_multiple(repository: &RepositoryInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
+            let ty = repository.ty();
+            let relation_ty = relation_repository.ty();
+            let relation_singular = relation_repository.singular();
+            let fn_name = op_ids_by_multiple_fn_name("load", repository, relation_repository);
+            quote! {
+                hex_arch_paste! {
+                    pub (crate) fn #fn_name(
+                        [<#relation_singular _ids>]: Vec<<Self as [<#relation_ty BaseRepository>]>::Id>,
+                        client: <Self as BaseRepository>::Client<'_>,
+                    ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Id>, <Self as BaseRepository>::Error> {
+                        #body
+                    }
+                }
+            }
+        }
     }
 
-    pub (crate) mod builders {
+    pub mod builders {
         use super::*;
 
-        pub (crate) fn get_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -1178,7 +1179,7 @@ pub (crate) mod read_repositories {
             let read_repositories = repository.read_repositories();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<Get #ty Builder>]<Adaptor: #read_repositories> {
                         adaptor: Adaptor,
                         load_adaptor_record: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<<Adaptor as [<#ty BaseRepository>]>::Record, <Adaptor as BaseRepository>::Error>>,
@@ -1233,7 +1234,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn get_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
@@ -1242,7 +1243,7 @@ pub (crate) mod read_repositories {
             let read_repositories = repository.read_repositories();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<Get #ty sBuilder>]<Adaptor: #read_repositories> {
                         adaptor: Adaptor,
                         num_requested_records: isize,
@@ -1304,7 +1305,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn try_get_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn try_get_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -1314,7 +1315,7 @@ pub (crate) mod read_repositories {
             let read_repositories = repository.read_repositories();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<TryGet #ty Builder>]<Adaptor: #read_repositories> {
                         adaptor: Adaptor,
                         try_load_adaptor_record: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<Option<<Adaptor as [<#ty BaseRepository>]>::Record>, <Adaptor as BaseRepository>::Error>>,
@@ -1369,7 +1370,7 @@ pub (crate) mod read_repositories {
             }
         }
 
-        pub (crate) fn try_get_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn try_get_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
@@ -1378,7 +1379,7 @@ pub (crate) mod read_repositories {
             let read_repositories = repository.read_repositories();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<TryGet #ty sBuilder>]<Adaptor: #read_repositories> {
                         adaptor: Adaptor,
                         num_requested_records: isize,
@@ -1442,10 +1443,10 @@ pub (crate) mod read_repositories {
     }
 }
 
-pub (crate) mod write_repositories {
+pub mod write_repositories {
     use super::*;
 
-    pub (crate) fn write_repositories(input: &RepositoriesInput, todo: bool) -> TokenStream2 {
+    pub fn write_repositories(input: &RepositoriesInput, todo: bool) -> TokenStream2 {
         let write_repositories: Vec<_> = input.repositories
             .iter()
             .filter(|repository| if let Mutability::RW = repository.mutability { true } else { false })
@@ -1481,10 +1482,10 @@ pub (crate) mod write_repositories {
         }
     }
 
-    pub (crate) mod ty_write_repository {
+    pub mod ty_write_repository {
         use super::*;
 
-        pub (crate) fn ty_write_repository(repository: &RepositoryInput, todo: bool) -> TokenStream2 {
+        pub fn ty_write_repository(repository: &RepositoryInput, todo: bool) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -1492,11 +1493,8 @@ pub (crate) mod write_repositories {
             let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub trait [<#ty WriteRepository>]: [<#ty ReadRepository>] {
-                        type RecordPost: From<[<#ty Post>]>;
-                        type RecordPatch: From<[<#ty Patch>]>;
-
                         fn [<delete_ #plural>](
                             [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
                             client: Self::Client<'_>,
@@ -1504,13 +1502,13 @@ pub (crate) mod write_repositories {
                             #body
 
                         fn [<insert_ #plural>](
-                            [<#singular _posts>]: Vec<<Self as [<#ty WriteRepository>]>::RecordPost>,
+                            [<#singular _posts>]: Vec<[<#ty Post>]>,
                             client: Self::Client<'_>,
                         ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Record>, Self::Error>
                             #body
 
                         fn [<update_ #plural>](
-                            [<#singular _patches>]: Vec<<Self as [<#ty WriteRepository>]>::RecordPatch>,
+                            [<#singular _patches>]: Vec<[<#ty Patch>]>,
                             client: Self::Client<'_>,
                         ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Record>, Self::Error>
                             #body
@@ -1520,15 +1518,15 @@ pub (crate) mod write_repositories {
         }
     }
 
-    pub (crate) mod builders {
+    pub mod builders {
         use super::*;
 
-        pub (crate) fn delete_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn delete_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<Delete #ty Builder>]<Adaptor: [<#ty WriteRepository>]> {
                         id: <Adaptor as [<#ty BaseRepository>]>::Id,
                     }
@@ -1551,12 +1549,12 @@ pub (crate) mod write_repositories {
             }
         }
 
-        pub (crate) fn delete_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn delete_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<Delete #ty sBuilder>]<Adaptor: [<#ty WriteRepository>]> {
                         ids: Vec<<Adaptor as [<#ty BaseRepository>]>::Id>,
                     }
@@ -1579,7 +1577,7 @@ pub (crate) mod write_repositories {
             }
         }
 
-        pub (crate) fn insert_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn insert_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -1587,7 +1585,7 @@ pub (crate) mod write_repositories {
             let read_repositories = repository.read_repositories();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<Insert #ty Builder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
                         adaptor: Adaptor,
                         post: [<#ty Post>],
@@ -1598,8 +1596,7 @@ pub (crate) mod write_repositories {
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_record = {
                                 let _write_lock = Adaptor::write()?;
-                                let adaptor_post = <Adaptor as [<#ty WriteRepository>]>::RecordPost::from(self.post);
-                                Adaptor::[<insert_ #plural>](vec![adaptor_post], client)?.pop().unwrap()
+                                Adaptor::[<insert_ #plural>](vec![self.post], client)?.pop().unwrap()
                             };
                             let _read_lock = Adaptor::read()?;
                             self.adaptor.[<get_ #singular>](adaptor_record, &self.load_relations, client)
@@ -1619,14 +1616,14 @@ pub (crate) mod write_repositories {
             }
         }
 
-        pub (crate) fn insert_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn insert_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let sync_ptr = repository.sync_ptr();
             let read_repositories = repository.read_repositories();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<Insert #ty sBuilder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
                         adaptor: Adaptor,
                         posts: Vec<[<#ty Post>]>,
@@ -1637,8 +1634,7 @@ pub (crate) mod write_repositories {
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_records = {
                                 let _write_lock = Adaptor::write()?;
-                                let adaptor_posts = self.posts.into_iter().map(<Adaptor as [<#ty WriteRepository>]>::RecordPost::from).collect();
-                                Adaptor::[<insert_ #plural>](adaptor_posts, client)?
+                                Adaptor::[<insert_ #plural>](self.posts, client)?
                             };
                             let _read_lock = Adaptor::read()?;
                             self.adaptor.[<get_ #plural>](adaptor_records, &self.load_relations, client)
@@ -1658,7 +1654,7 @@ pub (crate) mod write_repositories {
             }
         }
 
-        pub (crate) fn update_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn update_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -1666,7 +1662,7 @@ pub (crate) mod write_repositories {
             let read_repositories = repository.read_repositories();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<Update #ty Builder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
                         adaptor: Adaptor,
                         patch: [<#ty Patch>],
@@ -1677,8 +1673,7 @@ pub (crate) mod write_repositories {
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_record = {
                                 let _write_lock = Adaptor::write()?;
-                                let adaptor_patch = <Adaptor as [<#ty WriteRepository>]>::RecordPatch::from(self.patch);
-                                Adaptor::[<update_ #plural>](vec![adaptor_patch], client)?.pop().unwrap()
+                                Adaptor::[<update_ #plural>](vec![self.patch], client)?.pop().unwrap()
                             };
                             let _read_lock = Adaptor::read()?;
                             self.adaptor.[<get_ #singular>](adaptor_record, &self.load_relations, client)
@@ -1698,14 +1693,14 @@ pub (crate) mod write_repositories {
             }
         }
 
-        pub (crate) fn update_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn update_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let sync_ptr = repository.sync_ptr();
             let read_repositories = repository.read_repositories();
 
             quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     pub struct [<Update #ty sBuilder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
                         adaptor: Adaptor,
                         patches: Vec<[<#ty Patch>]>,
@@ -1716,8 +1711,7 @@ pub (crate) mod write_repositories {
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_records = {
                                 let _write_lock = Adaptor::write()?;
-                                let adaptor_patches = self.patches.into_iter().map(<Adaptor as [<#ty WriteRepository>]>::RecordPatch::from).collect();
-                                Adaptor::[<update_ #plural>](adaptor_patches, client)?
+                                Adaptor::[<update_ #plural>](self.patches, client)?
                             };
                             let _read_lock = Adaptor::read()?;
                             self.adaptor.[<get_ #plural>](adaptor_records, &self.load_relations, client)
@@ -1739,7 +1733,7 @@ pub (crate) mod write_repositories {
     }
 }
 
-pub (crate) mod shared {
+pub mod shared {
     use super::*;
 
     /*
@@ -1766,7 +1760,7 @@ pub (crate) mod shared {
             RepositoryInput { City },
         ) == "load_avenues_by_city"
     */
-    pub (crate) fn op_by_single_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
+    pub fn op_by_single_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
         let relation_ty_singular = relation_repository.singular(); // road | city
         let relation_plural = relation.plural(); // cities | avenues
         format_ident!("{}_{}_{}_by_{}", op, relation_ty_singular, relation_plural, relation_ty_singular)
@@ -1787,39 +1781,45 @@ pub (crate) mod shared {
             RepositoryInput { City },
         ) == "load_avenues_by_cities"
     */
-    pub (crate) fn op_by_multiple_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
+    pub fn op_by_multiple_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
         let relation_plural = relation.plural(); // cities | avenues
         let relation_ty_plural = relation_repository.plural(); // roads | cities
         format_ident!("{}_{}_by_{}", op, relation_plural, relation_ty_plural)
     }
 
-    pub (crate) fn load_in_single(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
+    pub fn op_ids_by_multiple_fn_name(op: &str, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> Ident {
+        let relation_singular = repository.singular();
+        let relation_ty_singular = relation_repository.singular();
+        format_ident!("{}_{}_ids_by_{}_ids", op, relation_singular, relation_ty_singular)
+    }
+
+    pub fn load_in_single(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
         let singular = repository.singular();
         let relation_snake = relation.snake();
         let get_by_single_fn_name = op_by_single_fn_name("get", relation, repository);
 
         match relation.cardinality {
             Cardinality::One => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     let related_entity = self.#get_by_single_fn_name(&#singular, load_relations, client)?;
                     loaded_relations.#relation_snake = Some(Box::new(related_entity));
                 }
             },
             Cardinality::OneOrNone => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     let related_entity_option = self.#get_by_single_fn_name(&#singular, load_relations, client)?;
                     loaded_relations.#relation_snake = Some(Box::new(related_entity_option));
                 }
             },
             Cardinality::Many => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     let related_entities_and_ids = self.#get_by_single_fn_name(&#singular, load_relations, client)?;
                     let related_entities: Vec<_> = related_entities_and_ids.into_iter().map(|(related_entity, _, _)| related_entity).collect();
                     loaded_relations.#relation_snake = Some(Box::new(related_entities));
                 }
             },
             Cardinality::AtLeastOne => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     let related_entities_and_ids = self.#get_by_single_fn_name(&#singular, load_relations, client)?;
                     let related_entities: Vec<_> = related_entities_and_ids.into_iter().map(|(related_entity, _, _)| related_entity).collect();
                     if related_entities.len() == 0 {
@@ -1831,7 +1831,7 @@ pub (crate) mod shared {
         }
     }
 
-    pub (crate) fn load_in_multiple(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
+    pub fn load_in_multiple(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
         let ty = repository.ty();
         let plural = repository.plural();
         let relation_snake = relation.snake();
@@ -1841,25 +1841,25 @@ pub (crate) mod shared {
 
         match relation.cardinality {
             Cardinality::One => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     let related_entities = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
 
-                    for (loaded_relations, related_entity) in repositories_izip!(all_loaded_relations.iter_mut(), related_entities.into_iter()) {
+                    for (loaded_relations, related_entity) in hex_arch_izip!(all_loaded_relations.iter_mut(), related_entities.into_iter()) {
                         loaded_relations.#relation_snake = Some(Box::new(related_entity));
                     }
                 }
             },
             Cardinality::OneOrNone => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     let related_entity_options = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
 
-                    for (loaded_relations, related_entity_option) in repositories_izip!(all_loaded_relations.iter_mut(), related_entity_options.into_iter()) {
+                    for (loaded_relations, related_entity_option) in hex_arch_izip!(all_loaded_relations.iter_mut(), related_entity_options.into_iter()) {
                         loaded_relations.#relation_snake = Some(Box::new(related_entity_option));
                     }
                 }
             },
             Cardinality::Many => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     let all_related_entities_and_ids = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
 
                     let mut all_related_entities_by_parent_ids: std::collections::HashMap<
@@ -1898,7 +1898,7 @@ pub (crate) mod shared {
                 }
             },
             Cardinality::AtLeastOne => quote! {
-                repositories_paste! {
+                hex_arch_paste! {
                     let all_related_entities_and_ids = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
 
                     let mut all_related_entities_by_parent_ids: std::collections::HashMap<

@@ -1,11 +1,11 @@
 [package]
-name = "hex_arch_repositories_proc_macros"
+name = "hex_arch_data_sources_proc_macros"
 version = "0.3.0"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
 [dependencies]
-repositories_core = { path = "../core", package = "hex_arch_repositories_core" }
+data_sources_core = { path = "../core", package = "hex_arch_data_sources_core" }
 syn = { version = "1.0.80", features = ["parsing"] }
 
 [lib]

@@ -1,74 +1,82 @@
 use convert_case::{Case, Casing};
 use proc_macro2::TokenStream as TokenStream2;
+use quote::{TokenStreamExt, ToTokens};
 use syn::{braced, Ident, parenthesized, token::Paren, Token, Type};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 
-#[derive(Clone, Debug)]
-pub (crate) enum Cardinality {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Cardinality {
     One,
     OneOrNone,
     AtLeastOne,
     Many,
 }
 
-#[derive(Clone, Debug)]
-pub (crate) enum Mutability {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Mutability {
     R,
     RW,
 }
 
-#[derive(Clone, Debug)]
-pub (crate) enum Syncability {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Syncability {
     Sync,
     Unsync,
 }
 
-pub (crate) struct RepositoriesInput {
-    pub (crate) name: Option<Ident>,
-    pub (crate) repositories: Vec<RepositoryInput>,
+#[derive(Clone)]
+pub struct RepositoriesInput {
+    pub name: Option<Ident>,
+    pub repositories: Vec<RepositoryInput>,
 }
 
-pub (crate) struct RepositoryIdents {
-    pub (crate) ty: Ident,
-    pub (crate) singular: Ident,
-    pub (crate) plural: Ident,
+#[derive(Clone)]
+pub struct RepositoryIdents {
+    pub ty: Ident,
+    pub singular: Ident,
+    pub plural: Ident,
 }
 
-pub (crate) struct RepositoryInput {
-    pub (crate) idents: RepositoryIdents,
-    pub (crate) id_type: Punctuated<Ident, Token![::]>,
-    pub (crate) mutability: Mutability,
-    pub (crate) read_repositories: TokenStream2,
-    pub (crate) relations: Vec<RelationInput>,
-    pub (crate) load_bys: Vec<LoadByInput>,
-    syncability: Option<Syncability>,
+#[derive(Clone)]
+pub struct RepositoryInput {
+    pub idents: RepositoryIdents,
+    pub id_type: Punctuated<Ident, Token![::]>,
+    pub mutability: Mutability,
+    pub read_repositories: TokenStream2,
+    pub relations: Vec<RelationInput>,
+    pub load_bys: Vec<LoadByInput>,
+    pub syncability: Option<Syncability>,
 }
 
-pub (crate) struct RelationIdents {
-    pub (crate) ty: Ident,
-    pub (crate) snake: Ident,
-    pub (crate) plural: Ident,
+#[derive(Clone)]
+pub struct RelationIdents {
+    pub ty: Ident,
+    pub snake: Ident,
+    pub plural: Ident,
 }
 
-pub (crate) struct RelationInput {
-    pub (crate) idents: RelationIdents,
-    pub (crate) cardinality: Cardinality,
-    syncability: Option<Syncability>,
+#[derive(Clone)]
+pub struct RelationInput {
+    pub idents: RelationIdents,
+    pub cardinality: Cardinality,
+    pub syncability: Option<Syncability>,
 }
 
-pub (crate) struct LoadByIdents {
-    pub (crate) singular: Ident,
-    pub (crate) plural: Ident,
+#[derive(Clone)]
+pub struct LoadByIdents {
+    pub singular: Ident,
+    pub plural: Ident,
 }
 
-pub (crate) struct LoadByInput {
-    pub (crate) idents: LoadByIdents,
-    pub (crate) ty: Type,
-    pub (crate) cardinality: Cardinality,
+#[derive(Clone)]
+pub struct LoadByInput {
+    pub idents: LoadByIdents,
+    pub ty: Type,
+    pub cardinality: Cardinality,
 }
 
-optional_fields! {
+fields! {
     RepositoryInput {
         relations!: input -> Vec<RelationInput> {
             let in_brace;
@@ -98,6 +106,23 @@ impl From<&Ident> for Cardinality {
     }
 }
 
+impl From<Ident> for Cardinality {
+    fn from(ident: Ident) -> Cardinality {
+        Cardinality::from(&ident)
+    }
+}
+
+impl ToTokens for Cardinality {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        match self {
+            Cardinality::One => tokens.append(format_ident!("One")),
+            Cardinality::OneOrNone => tokens.append(format_ident!("OneOrNone")),
+            Cardinality::AtLeastOne => tokens.append(format_ident!("AtLeastOne")),
+            Cardinality::Many => tokens.append(format_ident!("Many")),
+        }
+    }
+}
+
 impl From<&Ident> for Mutability {
     fn from(ident: &Ident) -> Mutability {
         let string = format!("{}", ident);
@@ -106,6 +131,29 @@ impl From<&Ident> for Mutability {
             "RW" => Mutability::RW,
             other => panic!("unrecognized mutability: expected one of {{R, RW}}, received {}", other),
         }
+    }
+}
+
+impl From<Ident> for Mutability {
+    fn from(ident: Ident) -> Mutability {
+        Mutability::from(&ident)
+    }
+}
+
+impl From<&Ident> for Syncability {
+    fn from(ident: &Ident) -> Syncability {
+        let string = format!("{}", ident);
+        match &*string {
+            "sync" => Syncability::Sync,
+            "unsync" => Syncability::Unsync,
+            other => panic!("unrecognized syncability: expected one of {{sync, unsync}}, received {}", other),
+        }
+    }
+}
+
+impl From<Ident> for Syncability {
+    fn from(ident: Ident) -> Syncability {
+        Syncability::from(&ident)
     }
 }
 
@@ -258,19 +306,8 @@ impl Parse for LoadByInput {
     }
 }
 
-impl From<&Ident> for Syncability {
-    fn from(ident: &Ident) -> Syncability {
-        let string = format!("{}", ident);
-        match &*string {
-            "sync" => Syncability::Sync,
-            "unsync" => Syncability::Unsync,
-            other => panic!("unrecognized syncability: expected one of {{sync, unsync}}, received {}", other),
-        }
-    }
-}
-
 impl RepositoriesInput {
-    pub (crate) fn tys(&self) -> Vec<&Ident> {
+    pub fn tys(&self) -> Vec<&Ident> {
         self.repositories
             .iter()
             .map(|repository| repository.ty())
@@ -279,75 +316,94 @@ impl RepositoriesInput {
 }
 
 impl RepositoryInput {
-    pub (crate) fn ty(&self) -> &Ident {
+    pub fn ty(&self) -> &Ident {
         &self.idents.ty
     }
 
-    pub (crate) fn singular(&self) -> &Ident {
+    pub fn singular(&self) -> &Ident {
         &self.idents.singular
     }
 
-    pub (crate) fn plural(&self) -> &Ident {
+    pub fn plural(&self) -> &Ident {
         &self.idents.plural
     }
 
-    pub (crate) fn relation_tys(&self) -> Vec<&Ident> {
+    pub fn relation_tys(&self) -> Vec<&Ident> {
         self.relations
             .iter()
             .map(|relation| relation.ty())
             .collect()
     }
 
-    pub (crate) fn relation_snakes(&self) -> Vec<&Ident> {
+    pub fn relation_snakes(&self) -> Vec<&Ident> {
         self.relations
             .iter()
             .map(|relation| relation.snake())
             .collect()
     }
 
-    pub (crate) fn sync_ptr(&self) -> TokenStream2 {
+    pub fn sync_ptr(&self) -> TokenStream2 {
         self.syncability.as_ref().unwrap().sync_ptr()
     }
 
-    pub (crate) fn read_repositories(&self) -> &TokenStream2 {
+    pub fn read_repositories(&self) -> &TokenStream2 {
         &self.read_repositories
+    }
+
+    pub fn inward_relations<'a>(&self, repositories_input: &'a RepositoriesInput) -> Vec<(&'a RelationInput, &'a RepositoryInput)> {
+        repositories_input.repositories
+            .iter()
+            .map(|rep|
+                rep.relations
+                    .iter()
+                    .filter_map(|relation|
+                        if *relation.ty() == *self.ty() {
+                            Some((relation, rep))
+                        } else {
+                            None
+                        }
+                    )
+                    .collect::<Vec<_>>()
+            )
+            .flatten()
+            .collect()
     }
 }
 
 impl RelationInput {
-    pub (crate) fn ty(&self) -> &Ident {
+    pub fn ty(&self) -> &Ident {
         &self.idents.ty
     }
 
-    pub (crate) fn snake(&self) -> &Ident {
+    pub fn snake(&self) -> &Ident {
         &self.idents.snake
     }
 
-    pub (crate) fn plural(&self) -> &Ident {
+    pub fn plural(&self) -> &Ident {
         &self.idents.plural
     }
 
-    pub (crate) fn sync_ptr(&self) -> TokenStream2 {
+    pub fn sync_ptr(&self) -> TokenStream2 {
         self.syncability.as_ref().unwrap().sync_ptr()
     }
 }
 
 impl LoadByInput {
-    pub (crate) fn ty(&self) -> &Type {
+    pub fn ty(&self) -> &Type {
         &self.ty
     }
 
-    pub (crate) fn singular(&self) -> &Ident {
+    pub fn singular(&self) -> &Ident {
         &self.idents.singular
     }
 
-    pub (crate) fn plural(&self) -> &Ident {
+    pub fn plural(&self) -> &Ident {
         &self.idents.plural
     }
 }
 
 impl Syncability {
-    pub (crate) fn sync_ptr(&self) -> TokenStream2 {
+    pub fn sync_ptr(&self) -> TokenStream2 {
         match &self {
             Syncability::Sync => "std::sync::Arc".parse().unwrap(),
             Syncability::Unsync => "std::rc::Rc".parse().unwrap(),

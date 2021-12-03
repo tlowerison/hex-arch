@@ -1,8 +1,5 @@
 #![feature(generic_associated_types)]
 
-pub use common::transpose_2 as repositories_transpose_2;
-pub use itertools::{izip as repositories_izip, Itertools as RepositoriesItertools};
-pub use paste::paste as repositories_paste;
 pub use proc_macros::*;
 
 #[derive(Clone, Debug)]
