@@ -67,3 +67,37 @@ pub trait Transactional {
         F: FnOnce() -> Result<T, E>,
         E: From<Self::AdaptorError>;
 }
+
+pub fn dupe<C: Clone>(c: C, count: usize) -> Vec<C> {
+    if count == 0 {
+        return vec![]
+    }
+    let mut dupes: Vec<C> = Vec::with_capacity(count);
+    for _ in 0..count - 1 {
+        dupes.push(c.clone());
+    }
+    dupes.push(c);
+    dupes
+}
+
+pub fn dupe_iter<C: Clone>(c: C, count: usize) -> DupeIter<C> {
+    DupeIter { c: Some(c), count }
+}
+
+pub struct DupeIter<C> {
+    c: Option<C>,
+    count: usize,
+}
+
+impl<C: Clone> Iterator for DupeIter<C> {
+    type Item = C;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.count > 1 {
+            Some(self.c.as_ref().unwrap().clone())
+        } else if self.count == 1 {
+            Some(std::mem::take(&mut self.c).unwrap())
+        } else {
+            None
+        }
+    }
+}

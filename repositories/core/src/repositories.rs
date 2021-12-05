@@ -194,8 +194,8 @@ pub mod read_repositories {
         quote! {
             hex_arch_paste! {
                 pub trait [<#ty BaseRepository>]: BaseRepository {
-                    type Id: Sized + Clone + Eq + From<#id_type> + PartialEq + std::hash::Hash + 'static;
-                    type Record: Clone + Sized + AsRef<Self::Id> + Into<Self::Id> + Into<#ty> + 'static;
+                    type Id: Sized + Clone + std::fmt::Debug + Eq + From<#id_type> + PartialEq + std::hash::Hash + 'static;
+                    type Record: Clone + std::fmt::Debug + Sized + AsRef<Self::Id> + Into<Self::Id> + Into<#ty> + 'static;
                 }
             }
         }
@@ -459,10 +459,10 @@ pub mod read_repositories {
                             }
                         )*
 
-                        let mut entities: std::collections::HashMap<
+                        let mut entities: hex_arch_indexmap::IndexMap<
                             <Self as [<#ty BaseRepository>]>::Id,
                             Vec<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>,
-                        > = std::collections::HashMap::default();
+                        > = hex_arch_indexmap::IndexMap::default();
 
                         let [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id> = records
                             .iter()
@@ -956,7 +956,7 @@ pub mod read_repositories {
                         }
                     )*
 
-                    let all_loaded_relations: std::collections::HashMap<_, _> = hex_arch_izip!(
+                    let all_loaded_relations: hex_arch_indexmap::IndexMap<_, _> = hex_arch_izip!(
                         unique_record_ids.into_iter(),
                         all_loaded_relations.into_iter(),
                     ).collect();
@@ -1013,7 +1013,7 @@ pub mod read_repositories {
                         }
                     )*
 
-                    let all_loaded_relations: std::collections::HashMap<_, _> = hex_arch_izip!(
+                    let all_loaded_relations: hex_arch_indexmap::IndexMap<_, _> = hex_arch_izip!(
                         unique_record_ids.into_iter(),
                         all_loaded_relations.into_iter(),
                     ).collect();
@@ -1280,6 +1280,15 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
+                        pub fn get_all<Adaptor: #read_repositories>() -> [<Get #ty sBuilder>]<Adaptor> {
+                            [<Get #ty sBuilder>] {
+                                adaptor: Adaptor::default(),
+                                num_requested_records: -1,
+                                load_adaptor_records: Box::new(move |client| Adaptor::[<load_all_ #plural>](client)),
+                                load_relations: [<Load #ty Relations>]::default(),
+                            }
+                        }
+
                         pub fn get_batch<Adaptor: #read_repositories>(ids: Vec<<Adaptor as [<#ty BaseRepository>]>::Id>) -> [<Get #ty sBuilder>]<Adaptor> {
                             [<Get #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
@@ -1889,6 +1898,7 @@ pub mod shared {
 
     pub fn load_in_multiple(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
         let ty = repository.ty();
+        let singular = repository.singular();
         let plural = repository.plural();
         let relation_snake = relation.snake();
         let get_by_multiple_fn_name = op_by_multiple_fn_name("get", relation, repository);
@@ -1918,30 +1928,42 @@ pub mod shared {
                 hex_arch_paste! {
                     let all_related_entities_and_ids = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
 
-                    let mut all_related_entities_by_parent_ids: std::collections::HashMap<
+                    let mut all_related_entities_by_parent_ids: hex_arch_indexmap::IndexMap<
                         <Self as [<#ty BaseRepository>]>::Id,
-                        std::collections::HashMap<
+                        hex_arch_indexmap::IndexMap<
                             <Self as [<#relation_ty BaseRepository>]>::Id,
                             Vec<Entity<#sync_ptr<#relation_ty>, [<Loaded #relation_ty Relations>]>>,
                         >,
-                    > = std::collections::HashMap::default();
+                    > = hex_arch_indexmap::IndexMap::default();
+
+                    let mut parent_id_counts: std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Id, usize> = std::collections::HashMap::default();
+                    for #singular in #plural.iter() {
+                        parent_id_counts.entry(#singular.as_ref().clone())
+                            .and_modify(|count| *count += 1)
+                            .or_insert(1);
+                    }
 
                     for (related_entity, related_id, parent_id) in all_related_entities_and_ids.into_iter() {
                         if !all_related_entities_by_parent_ids.contains_key(&parent_id) {
-                            all_related_entities_by_parent_ids.insert(parent_id.clone(), std::collections::HashMap::default());
+                            all_related_entities_by_parent_ids.insert(parent_id.clone(), hex_arch_indexmap::IndexMap::default());
                         }
 
                         let all_related_entities_by_related_ids = all_related_entities_by_parent_ids.get_mut(&parent_id).unwrap();
 
                         if !all_related_entities_by_related_ids.contains_key(&related_id) {
-                            all_related_entities_by_related_ids.insert(related_id, vec![related_entity]);
+                            let parent_id_count = parent_id_counts.get(&parent_id).unwrap();
+                            all_related_entities_by_related_ids.insert(related_id, dupe(related_entity, *parent_id_count));
                         } else {
-                            all_related_entities_by_related_ids.get_mut(&related_id).unwrap().push(related_entity);
+                            let parent_id_count = parent_id_counts.get(&parent_id).unwrap();
+                            let related_entities = all_related_entities_by_related_ids.get_mut(&related_id).unwrap();
+                            for dupe in dupe_iter(related_entity, *parent_id_count) {
+                                related_entities.push(dupe);
+                            }
                         }
                     }
 
                     for (i, loaded_relations) in all_loaded_relations.iter_mut().enumerate() {
-                        loaded_relations.#relation_snake = Some(Box::new(match all_related_entities_by_parent_ids.get_mut(&#plural[i].as_ref()) {
+                        loaded_relations.#relation_snake = Some(Box::new(match all_related_entities_by_parent_ids.get_mut(#plural[i].as_ref()) {
                             Some(all_related_entities_by_related_ids) => {
                                 all_related_entities_by_related_ids
                                     .values_mut()
@@ -1957,30 +1979,42 @@ pub mod shared {
                 hex_arch_paste! {
                     let all_related_entities_and_ids = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
 
-                    let mut all_related_entities_by_parent_ids: std::collections::HashMap<
+                    let mut all_related_entities_by_parent_ids: hex_arch_indexmap::IndexMap<
                         <Self as [<#ty BaseRepository>]>::Id,
-                        std::collections::HashMap<
+                        hex_arch_indexmap::IndexMap<
                             <Self as [<#relation_ty BaseRepository>]>::Id,
                             Vec<Entity<#sync_ptr<#relation_ty>, [<Loaded #relation_ty Relations>]>>,
                         >,
-                    > = std::collections::HashMap::default();
+                    > = hex_arch_indexmap::IndexMap::default();
+
+                    let mut parent_id_counts: std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Id, usize> = std::collections::HashMap::default();
+                    for #singular in #plural.iter() {
+                        parent_id_counts.entry(#singular.as_ref().clone())
+                            .and_modify(|count| *count += 1)
+                            .or_insert(1);
+                    }
 
                     for (related_entity, related_id, parent_id) in all_related_entities_and_ids.into_iter() {
                         if !all_related_entities_by_parent_ids.contains_key(&parent_id) {
-                            all_related_entities_by_parent_ids.insert(parent_id.clone(), std::collections::HashMap::default());
+                            all_related_entities_by_parent_ids.insert(parent_id.clone(), hex_arch_indexmap::IndexMap::default());
                         }
 
                         let all_related_entities_by_related_ids = all_related_entities_by_parent_ids.get_mut(&parent_id).unwrap();
 
                         if !all_related_entities_by_related_ids.contains_key(&related_id) {
-                            all_related_entities_by_related_ids.insert(related_id, vec![related_entity]);
+                            let parent_id_count = parent_id_counts.get(&parent_id).unwrap();
+                            all_related_entities_by_related_ids.insert(related_id, dupe(related_entity, *parent_id_count));
                         } else {
-                            all_related_entities_by_related_ids.get_mut(&related_id).unwrap().push(related_entity);
+                            let parent_id_count = parent_id_counts.get(&parent_id).unwrap();
+                            let related_entities = all_related_entities_by_related_ids.get_mut(&related_id).unwrap();
+                            for dupe in dupe_iter(related_entity, *parent_id_count) {
+                                related_entities.push(dupe);
+                            }
                         }
                     }
 
                     for (i, loaded_relations) in all_loaded_relations.iter_mut().enumerate() {
-                        loaded_relations.#relation_snake = Some(Box::new(match all_related_entities_by_parent_ids.get_mut(&#plural[i].as_ref()) {
+                        loaded_relations.#relation_snake = Some(Box::new(match all_related_entities_by_parent_ids.get_mut(#plural[i].as_ref()) {
                             Some(all_related_entities_by_related_ids) => {
                                 let related_entities: Vec<_> = all_related_entities_by_related_ids
                                     .values_mut()

@@ -2,6 +2,7 @@ use crate::get_repositories_input::*;
 use common::*;
 use convert_case::{Case, Casing};
 use proc_macro2::TokenStream as TokenStream2;
+use quote::{TokenStreamExt, ToTokens};
 use repositories_core::{
     *,
     read_repositories::ty_read_repository::{
@@ -14,15 +15,18 @@ use repositories_core::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use syn::{braced, Ident, LitStr, Token, Type};
+use syn::{braced, Ident, LitStr, Token, parenthesized, Type};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
+use syn::token::Paren;
 
+#[derive(Clone, Debug)]
 pub struct AdaptorInput {
     pub path: LitStr,
     pub config: AdaptorConfigInput,
 }
 
+#[derive(Clone, Debug)]
 pub struct AdaptorConfigInput {
     adaptor_name: Ident,
     entity_prefix: Ident,
@@ -31,6 +35,7 @@ pub struct AdaptorConfigInput {
     adaptor_entity_inputs: Vec<AdaptorEntityInput>,
 }
 
+#[derive(Clone, Debug)]
 pub struct AdaptorEntityInput {
     ty: Ident,
     id: Ident,
@@ -43,6 +48,7 @@ pub struct AdaptorEntityInput {
     delete: Option<AdaptorEntityMutateInput>,
 }
 
+#[derive(Clone, Debug)]
 pub struct AdaptorEntityLoadInput {
     plural: Option<TokenStream2>,
     try_plural: Option<TokenStream2>,
@@ -51,17 +57,49 @@ pub struct AdaptorEntityLoadInput {
     ids_by: HashMap<Ident, TokenStream2>,
 }
 
+#[derive(Clone, Debug)]
 pub enum AdaptorEntityMutateInput {
     FnBody(TokenStream2),
     Full,
 }
 
+#[derive(Clone, Debug)]
+pub enum OrderByOrdering {
+    Asc,
+    Desc,
+}
+
+impl ToTokens for OrderByOrdering {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        match self {
+            OrderByOrdering::Asc => tokens.append(format_ident!("asc")),
+            OrderByOrdering::Desc => tokens.append(format_ident!("desc")),
+        }
+    }
+}
+
+impl TryFrom<Ident> for OrderByOrdering {
+    type Error = syn::Error;
+
+    fn try_from(ident: Ident) -> Result<Self, Self::Error> {
+        match &*format!("{}", ident).to_lowercase() {
+            "asc" => Ok(OrderByOrdering::Asc),
+            "desc" => Ok(OrderByOrdering::Desc),
+            _ => Err(syn::Error::new_spanned(ident, "expected one of `asc` or `desc`")),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ChildInput {
     pub snake: Ident,
     pub ty: Type,
     pub is_reverse_linked: bool,
+    pub order_by_field: Option<Ident>,
+    pub order_by_ordering: Option<OrderByOrdering>,
 }
 
+#[derive(Clone, Debug)]
 pub struct LoadFnInput {
     snake_name: Ident,
     block: TokenStream2,
@@ -168,22 +206,54 @@ fields! {
 impl Parse for ChildInput {
     fn parse(input: ParseStream) -> syn::Result<ChildInput> {
         let snake: Ident = input.parse()?;
-        let _comma: Token![:] = input.parse()?;
+        let _colon: Token![:] = input.parse()?;
+
+        let is_in_parens = input.peek(Paren);
+        if is_in_parens {
+            let in_parens;
+            parenthesized!(in_parens in input);
+            ChildInput::parse_after_colon(&in_parens, snake, is_in_parens)
+        } else {
+            ChildInput::parse_after_colon(input, snake, is_in_parens)
+        }
+    }
+}
+
+impl ChildInput {
+    fn parse_after_colon(input: ParseStream, snake: Ident, is_in_parens: bool) -> syn::Result<ChildInput> {
         let ty: Type = input.parse()?;
+
+        let mut child_input = ChildInput {
+            snake,
+            ty,
+            is_reverse_linked: false,
+            order_by_field: None,
+            order_by_ordering: None,
+        };
 
         if input.peek(Token![|]) {
             let _vert: Token![|] = input.parse()?;
-            let mut child_input = ChildInput { snake, ty, is_reverse_linked: false };
             let flag: Ident = input.parse()?;
 
             match &*format!("{}", flag) {
                 "reverse_linked" => { child_input.is_reverse_linked = true; },
                 _ => return Err(syn::Error::new_spanned(flag, "unrecognized flag on child entity")),
             }
-            Ok(child_input)
-        } else {
-            Ok(ChildInput { snake, ty, is_reverse_linked: false })
         }
+        if input.peek(Token![,]) {
+            if !is_in_parens {
+                return Ok(child_input);
+            }
+
+            let _comma: Token![,] = input.parse()?;
+            child_input.order_by_field = Some(input.parse::<Ident>()?);
+            child_input.order_by_ordering = input
+                .parse::<Ident>()
+                .ok()
+                .map(OrderByOrdering::try_from)
+                .transpose()?;
+        }
+        Ok(child_input)
     }
 }
 
@@ -387,7 +457,7 @@ pub fn repository_impl(
     repositories_and_adaptor_entity_inputs: &HashMap<Ident, (RepositoryInput, Option<AdaptorEntityInput>)>,
 ) -> (TokenStream2, Vec<(Ident, TokenStream2)>) {
     let base_repository = base_repository_impl(adaptor_name, entity_prefix, repository_input);
-    let (read_repository, load_ids_by) = read_repository_impl(adaptor_name, entity_prefix, namespaces, ids, repository_input, repositories_input, adaptor_entity_input_opt.as_ref());
+    let (read_repository, load_ids_by) = read_repository_impl(adaptor_name, entity_prefix, namespaces, ids, repository_input, repositories_input, adaptor_entity_input_opt.as_ref(), repositories_and_adaptor_entity_inputs);
     let write_repository = write_repository_impl(adaptor_name, entity_prefix, namespaces, ids, repository_input, adaptor_entity_input_opt.as_ref(), repositories_and_adaptor_entity_inputs);
 
     (quote! { #base_repository #read_repository #write_repository }, load_ids_by)
@@ -415,6 +485,7 @@ pub fn read_repository_impl(
     repository_input: &RepositoryInput,
     repositories_input: &RepositoriesInput,
     adaptor_entity_input_opt: Option<&AdaptorEntityInput>,
+    repositories_and_adaptor_entity_inputs: &HashMap<Ident, (RepositoryInput, Option<AdaptorEntityInput>)>,
 ) -> (TokenStream2, Vec<(Ident, TokenStream2)>) {
     let ty = repository_input.ty();
     let singular = repository_input.singular();
@@ -478,6 +549,30 @@ pub fn read_repository_impl(
             let relation_namespace = namespaces.get(relation_ty).unwrap();
             let relation_id = ids.get(relation_ty).unwrap();
 
+            let relation_snake = relation.snake();
+
+            let (order_by_field, order_by_ordering) = repositories_and_adaptor_entity_inputs
+                .get(relation_ty)
+                .unwrap()
+                .1
+                .as_ref()
+                .map(|adaptor_entity_input|
+                    adaptor_entity_input.children
+                        .iter()
+                        .find(|child_input| child_input.snake == *relation_snake)
+                        .map(|child_input| (child_input.order_by_field.clone(), child_input.order_by_ordering.clone()))
+                )
+                .flatten()
+                .unwrap_or((None, None));
+
+            let order_by_tokens = match order_by_field {
+                Some(order_by_field) => match order_by_ordering {
+                    Some(order_by_ordering) => quote! { #order_by_field #order_by_ordering, },
+                    None => quote! { #order_by_field asc, }
+                },
+                None => quote! {},
+            };
+
             (
                 op_by_multiple_fn_name("load", relation, relation_repository),
                 load_by_multiple(relation, repository_input, relation_repository, &quote! {
@@ -494,6 +589,7 @@ pub fn read_repository_impl(
                                 #namespace,
                                 #relation_namespace,
                                 #relation_id,
+                                #order_by_tokens
                             })
                         }
                     }
@@ -514,7 +610,15 @@ pub fn read_repository_impl(
             &quote! {
                 {
                     hex_arch_paste! {
-                        Ok(load! { #cardinality, [<#entity_prefix #ty>], #load_by_plural, #load_by_ty, client, #namespace, #load_by_singular })
+                        Ok(load! {
+                            #cardinality,
+                            [<#entity_prefix #ty>],
+                            #load_by_plural,
+                            #load_by_ty,
+                            client,
+                            #namespace,
+                            #load_by_singular,
+                        })
                     }
                 }
             }

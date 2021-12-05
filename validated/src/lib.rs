@@ -23,8 +23,8 @@ fn is_matching_attr(attr: &Attribute) -> bool {
     false
 }
 
-fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Ident, should_access_draft_instance: bool) -> ((Vec<Ident>, Vec<TokenStream2>), (Vec<Ident>, Vec<Type>)) {
-    let field_name_type_and_inclusion_in_drafts: Vec<_> = fields_named
+fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Ident, should_access_draft_instance: bool) -> ((Vec<Ident>, Vec<TokenStream2>), (Vec<Ident>, Vec<Type>, Vec<Vec<Attribute>>)) {
+    let field_name_type_attrs_and_inclusion_in_drafts: Vec<_> = fields_named
         .named
         .iter()
         .map(|field| {
@@ -34,13 +34,18 @@ fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Iden
                     include_in_signature = false;
                 }
             }
-            (field.ident.as_ref().unwrap().clone(), field.ty.clone(), include_in_signature)
+            (
+                field.ident.as_ref().unwrap().clone(),
+                field.attrs.clone().into_iter().filter(|attr| !is_matching_attr(&attr)).collect::<Vec<_>>(),
+                field.ty.clone(),
+                include_in_signature,
+            )
         })
         .collect();
 
-    let (field_names, field_instances) = transpose_2(field_name_type_and_inclusion_in_drafts
+    let (field_names, field_instances) = transpose_2(field_name_type_attrs_and_inclusion_in_drafts
         .iter()
-        .map(|(field_name, field_type, inclusion_in_draft)| (
+        .map(|(field_name, _, field_type, inclusion_in_draft)| (
             field_name.clone(),
             if *inclusion_in_draft {
                 if should_access_draft_instance {
@@ -55,11 +60,11 @@ fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Iden
         .collect()
     );
 
-    let (draft_field_names, draft_field_types) = transpose_2(field_name_type_and_inclusion_in_drafts
+    let (draft_field_names, draft_field_types, draft_field_attrs) = transpose_3(field_name_type_attrs_and_inclusion_in_drafts
         .iter()
-        .filter_map(|(field_name, field_type, inclusion_in_draft)|
+        .filter_map(|(field_name, attrs, field_type, inclusion_in_draft)|
             if *inclusion_in_draft {
-                Some((field_name.clone(), field_type.clone()))
+                Some((field_name.clone(), field_type.clone(), attrs.clone()))
             } else {
                 None
             }
@@ -69,27 +74,29 @@ fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Iden
 
     (
         (field_names, field_instances),
-        (draft_field_names, draft_field_types),
+        (draft_field_names, draft_field_types, draft_field_attrs),
     )
 }
 
-fn unnamed_fields_util(fields_unnamed: &syn::FieldsUnnamed) -> (Vec<Type>, Vec<usize>) {
-    let field_types: Vec<_> = fields_unnamed
-        .unnamed
-        .iter()
-        .map(|field| {
-            for attr in field.attrs.iter() {
-                if is_matching_attr(&attr) {
-                    panic!("generate_valid attribute cannot be attached to unnamed fields");
+fn unnamed_fields_util(fields_unnamed: &syn::FieldsUnnamed) -> (Vec<Type>, Vec<usize>, Vec<Vec<Attribute>>) {
+    let (field_types, draft_field_attrs) = transpose_2(
+        fields_unnamed
+            .unnamed
+            .iter()
+            .map(|field| {
+                for attr in field.attrs.iter() {
+                    if is_matching_attr(&attr) {
+                        panic!("generate_valid attribute cannot be attached to unnamed fields");
+                    }
                 }
-            }
-            field.ty.clone()
-        })
-        .collect();
+                (field.ty.clone(), field.attrs.clone().into_iter().filter(|attr| !is_matching_attr(&attr)).collect::<Vec<_>>())
+            })
+            .collect()
+    );
 
     let indices: Vec<_> = (0..field_types.len()).collect();
 
-    (field_types, indices)
+    (field_types, indices, draft_field_attrs)
 }
 
 #[proc_macro_derive(Validated, attributes(generate_valid))]
@@ -107,12 +114,16 @@ pub fn validated(item: TokenStream) -> TokenStream {
             syn::Fields::Named(fields_named) => {
                 let (
                     (field_names, field_instances),
-                    (draft_field_names, draft_field_types),
+                    (draft_field_names, draft_field_types, draft_field_attrs),
                 ) = named_fields_util(&fields_named, &draft_instance_name, true);
 
                 quote! {
+                    #[derive(Clone, Debug)]
                     pub struct #draft_name {
-                        #(pub #draft_field_names: #draft_field_types),*
+                        #(
+                            #(#draft_field_attrs)*
+                            pub #draft_field_names: #draft_field_types
+                        ),*
                     }
 
                     impl From<#name> for #draft_name {
@@ -135,10 +146,14 @@ pub fn validated(item: TokenStream) -> TokenStream {
                 }
             },
             syn::Fields::Unnamed(fields_unnamed) => {
-                let (field_types, indices) = unnamed_fields_util(&fields_unnamed);
+                let (field_types, indices, draft_field_attrs) = unnamed_fields_util(&fields_unnamed);
                 quote! {
+                    #[derive(Clone, Debug)]
                     pub struct #draft_name(
-                        #(pub #field_types),*
+                        #(
+                            #(#draft_field_attrs)*
+                            pub #field_types
+                        ),*
                     );
 
                     impl From<#name> for #draft_name {
@@ -162,6 +177,7 @@ pub fn validated(item: TokenStream) -> TokenStream {
             },
             syn::Fields::Unit => {
                 quote! {
+                    #[derive(Clone, Debug)]
                     pub struct #draft_name;
 
                     impl From<#name> for #draft_name {
@@ -189,25 +205,25 @@ pub fn validated(item: TokenStream) -> TokenStream {
                         syn::Fields::Named(fields_named) => {
                             let (
                                 (field_names, field_instances),
-                                (draft_field_names, draft_field_types),
+                                (draft_field_names, draft_field_types, draft_field_attrs),
                             ) = named_fields_util(&fields_named, &draft_instance_name, false);
                             (
-                                quote! { { #(#draft_field_names: #draft_field_types,)* } },
-                                quote! { { #(#draft_field_names,)* } },
-                                quote! { { #(#draft_field_names: #draft_field_names,)* } },
-                                quote! { { #(#draft_field_names,)* .. } },
-                                quote! { { #(#field_names: #field_instances,)* } },
+                                quote! { { #( #(#draft_field_attrs)* #draft_field_names: #draft_field_types, )* } },
+                                quote! { { #( #draft_field_names, )* } },
+                                quote! { { #( #draft_field_names: #draft_field_names, )* } },
+                                quote! { { #( #draft_field_names, )* .. } },
+                                quote! { { #( #field_names: #field_instances, )* } },
                             )
                         },
                         syn::Fields::Unnamed(fields_unnamed) => {
-                            let (field_types, indices) = unnamed_fields_util(&fields_unnamed);
+                            let (field_types, indices, draft_field_attrs) = unnamed_fields_util(&fields_unnamed);
                             let field_names: Vec<_> = indices.into_iter().map(|index| format_ident!("_{}", index)).collect();
                             (
-                                quote! { ( #(#field_types,)* ) },
-                                quote! { ( #(#field_names,)* ) },
-                                quote! { ( #(#field_names,)* ) },
-                                quote! { ( #(#field_names,)* .. ) },
-                                quote! { ( #(#field_names,)* ) },
+                                quote! { ( #( #(#draft_field_attrs)*  #field_types, )* ) },
+                                quote! { ( #( #field_names, )* ) },
+                                quote! { ( #( #field_names, )* ) },
+                                quote! { ( #( #field_names, )* .. ) },
+                                quote! { ( #( #field_names, )* ) },
                             )
                         },
                         syn::Fields::Unit => (quote! {}, quote! {}, quote! {}, quote! {}, quote! {}),
@@ -217,6 +233,7 @@ pub fn validated(item: TokenStream) -> TokenStream {
             );
             let (draft_defs, draft_expansions, draft_instances, expansions, instances) = transpose_5(variant_tokens);
             quote! {
+                #[derive(Clone, Debug)]
                 pub enum #draft_name {
                     #(#variant_idents #draft_defs),*
                 }
