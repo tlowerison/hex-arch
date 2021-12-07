@@ -16,7 +16,8 @@ impl<K, E: AsRef<K>, R> AsRef<K> for Entity<std::sync::Arc<E>, R> {
 
 pub trait BaseRepository: Clone + Default + Sized {
     type Client<'a>: Copy;
-    type Error: RepositoryError
+    type Error: std::fmt::Debug
+        + RepositoryError
         + From<std::sync::PoisonError<std::sync::RwLockReadGuard<'static, ()>>>
         + From<std::sync::PoisonError<std::sync::RwLockWriteGuard<'static, ()>>>;
 
