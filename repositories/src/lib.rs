@@ -8,6 +8,12 @@ pub struct Entity<E, R> {
     pub relations: R,
 }
 
+impl<K, E: AsRef<K>, R> AsRef<K> for Entity<std::sync::Arc<E>, R> {
+    fn as_ref(&self) -> &K {
+        self.value.as_ref().as_ref()
+    }
+}
+
 pub trait BaseRepository: Clone + Default + Sized {
     type Client<'a>: Copy;
     type Error: RepositoryError
