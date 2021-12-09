@@ -38,7 +38,7 @@ macro_rules! fields {
             ),*$(,)?
         }
     ) => {
-        paste! {
+        hex_arch_paste! {
             pub (crate) enum [<$fields_ident Field>] {
                 $(
                     #[allow(non_camel_case_types)]
