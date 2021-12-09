@@ -1,4 +1,5 @@
 #[cfg(feature = "accessors")] pub use hex_arch_accessors::*;
+#[cfg(feature = "cache")] pub use hex_arch_cache::*;
 #[cfg(feature = "data_sources")] pub use hex_arch_data_sources::*;
 #[cfg(feature = "fields")] pub use hex_arch_fields::*;
 #[cfg(feature = "repositories")] pub use hex_arch_repositories::*;

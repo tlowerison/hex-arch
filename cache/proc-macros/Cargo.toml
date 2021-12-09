@@ -1,12 +1,14 @@
 [package]
-name = "hex_arch_repositories_core"
-version = "0.3.9"
+name = "hex_arch_cache_proc_macros"
+version = "0.1.0"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
 [dependencies]
-convert_case = "0.4.0"
 fields = { path = "../../fields", package = "hex_arch_fields" }
 proc-macro2 = "1.0.29"
 quote = "1.0.10"
 syn = { version = "1.0.80", features = ["parsing"] }
+
+[lib]
+proc-macro = true

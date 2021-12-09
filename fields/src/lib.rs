@@ -1,3 +1,5 @@
+pub use paste::paste as fields_paste;
+
 #[macro_export]
 macro_rules! maybe_option {
     (!, $ty:ty) => { $ty };
@@ -38,7 +40,7 @@ macro_rules! fields {
             ),*$(,)?
         }
     ) => {
-        paste! {
+        fields_paste! {
             pub (crate) enum [<$fields_ident Field>] {
                 $(
                     #[allow(non_camel_case_types)]

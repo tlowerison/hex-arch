@@ -1,5 +1,4 @@
 #[macro_use] extern crate fields;
-#[macro_use] extern crate paste;
 #[macro_use] extern crate quote;
 
 mod input;

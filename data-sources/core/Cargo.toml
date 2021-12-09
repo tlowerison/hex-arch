@@ -1,6 +1,6 @@
 [package]
 name = "hex_arch_data_sources_core"
-version = "0.3.3"
+version = "0.3.9"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
@@ -10,7 +10,6 @@ convert_case = "0.4.0"
 fields = { path = "../../fields", package = "hex_arch_fields" }
 itertools = "0.10.1"
 lazy_static = "1.4.0"
-paste = "1.0.5"
 pcre2 = "0.2.3"
 proc-macro2 = "1.0.29"
 repositories_core = { path = "../../repositories/core", package = "hex_arch_repositories_core" }
