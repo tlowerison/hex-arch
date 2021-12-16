@@ -21,3 +21,5 @@ transpose!(3, a b c);
 transpose!(4, a b c d);
 transpose!(5, a b c d e);
 transpose!(6, a b c d e f);
+transpose!(7, a b c d e f g);
+transpose!(8, a b c d e f g h);

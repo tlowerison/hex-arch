@@ -39,9 +39,16 @@ pub struct RepositoryIdents {
 }
 
 #[derive(Clone)]
+pub struct KeyIdents {
+    pub ty: Type,
+    pub singular: Ident,
+    pub plural: Ident,
+}
+
+#[derive(Clone)]
 pub struct RepositoryInput {
     pub idents: RepositoryIdents,
-    pub id_type: Punctuated<Ident, Token![::]>,
+    pub key: KeyIdents,
     pub mutability: Mutability,
     pub read_repositories: TokenStream2,
     pub relations: Vec<RelationInput>,
@@ -78,7 +85,23 @@ pub struct LoadByInput {
 
 fields! {
     RepositoryInput {
-        relations!: input -> Vec<RelationInput> {
+        key!: input -> KeyIdents {
+            let in_paren;
+            parenthesized!(in_paren in input);
+            let ty: Type = in_paren.parse()?;
+            let _comma: Token![,] = in_paren.parse()?;
+            let singular: Ident = in_paren.parse()?;
+            let comma: Option<Token![,]> = in_paren.parse().ok();
+
+            let plural: Ident = if let Some(_) = comma {
+                in_paren.parse()?
+            } else {
+                format_ident!("{}s", singular)
+            };
+
+            KeyIdents { ty, singular, plural }
+        },
+        relations?: input -> Vec<RelationInput> {
             let in_brace;
             braced!(in_brace in input);
             let relations: Punctuated<RelationInput, Token![,]> = in_brace.parse_terminated(RelationInput::parse)?;
@@ -197,15 +220,9 @@ impl Parse for RepositoriesInput {
 
 impl Parse for RepositoryInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let in_brace;
-        let in_paren;
-
         let ty: Ident = input.parse()?;
 
-        parenthesized!(in_paren in input);
-        let id_type: Punctuated<Ident, Token![::]> = in_paren.parse_terminated(Ident::parse)?;
-
-        let idents: RepositoryIdents = RepositoryIdents {
+        let idents = RepositoryIdents {
             singular: format_ident!("{}", format!("{}", ty).to_case(Case::Snake)),
             plural: if input.peek(Paren) {
                 let in_paren;
@@ -218,18 +235,20 @@ impl Parse for RepositoryInput {
         };
 
         let mutability: Mutability = Mutability::from(&input.parse()?);
+
+        let in_brace;
         braced!(in_brace in input);
 
         let fields: RepositoryInputFields = in_brace.parse()?;
 
         Ok(RepositoryInput {
             idents,
-            id_type,
             mutability,
             syncability: None,
             read_repositories: quote! {},
+            key: fields.key,
             load_bys: fields.load_by.unwrap_or(vec![]),
-            relations: fields.relations,
+            relations: fields.relations.unwrap_or(vec![]),
         })
     }
 }
@@ -326,6 +345,18 @@ impl RepositoryInput {
 
     pub fn plural(&self) -> &Ident {
         &self.idents.plural
+    }
+
+    pub fn key_ty(&self) -> &Type {
+        &self.key.ty
+    }
+
+    pub fn key_singular(&self) -> &Ident {
+        &self.key.singular
+    }
+
+    pub fn key_plural(&self) -> &Ident {
+        &self.key.plural
     }
 
     pub fn relation_tys(&self) -> Vec<&Ident> {

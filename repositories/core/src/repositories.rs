@@ -190,12 +190,12 @@ pub mod read_repositories {
 
     fn ty_base_repository(repository: &RepositoryInput) -> TokenStream2 {
         let ty = repository.ty();
-        let id_type = &repository.id_type;
+        let key_type = &repository.key.ty;
         quote! {
             hex_arch_paste! {
                 pub trait [<#ty BaseRepository>]: BaseRepository {
-                    type Id: Sized + Clone + std::fmt::Debug + Eq + From<#id_type> + PartialEq + std::hash::Hash + 'static;
-                    type Record: Clone + std::fmt::Debug + Sized + AsRef<Self::Id> + Into<Self::Id> + Into<#ty> + 'static;
+                    type Key: Sized + Clone + std::fmt::Debug + Eq + From<#key_type> + PartialEq + std::hash::Hash + 'static;
+                    type Record: Clone + std::fmt::Debug + Sized + AsRef<Self::Key> + Into<Self::Key> + Into<#ty> + 'static;
                 }
             }
         }
@@ -209,6 +209,8 @@ pub mod read_repositories {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
+            let key_plural = repository.key_plural();
+
             let get_singular = get_singular(repository);
             let get_multiple = get_multiple(repository);
             let try_get_singular = try_get_singular(repository);
@@ -244,7 +246,7 @@ pub mod read_repositories {
                     #entity_storage
 
                     fn [<load_ #plural>](
-                        [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
+                        [<#singular _ #key_plural>]: Vec<<Self as [<#ty BaseRepository>]>::Key>,
                         client: Self::Client<'_>,
                     ) -> Result<
                         Vec<<Self as [<#ty BaseRepository>]>::Record>,
@@ -261,7 +263,7 @@ pub mod read_repositories {
                         #body
 
                     fn [<try_load_ #plural>](
-                        [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
+                        [<#singular _ #key_plural>]: Vec<<Self as [<#ty BaseRepository>]>::Key>,
                         client: Self::Client<'_>,
                     ) -> Result<
                         Vec<Option<<Self as [<#ty BaseRepository>]>::Record>>,
@@ -318,7 +320,7 @@ pub mod read_repositories {
 
             let todo_fns = quote! {
                 hex_arch_paste! {
-                    fn [<#plural _mut>](&mut self) -> &mut std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Id, (#sync_ptr<#ty>, #sync_ptr<<Self as [<#ty BaseRepository>]>::Record>)>
+                    fn [<#plural _mut>](&mut self) -> &mut std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Key, (#sync_ptr<#ty>, #sync_ptr<<Self as [<#ty BaseRepository>]>::Record>)>
                     where
                         Self: #read_repositories
                     #body
@@ -353,17 +355,17 @@ pub mod read_repositories {
                                 [<adaptor_ #plural>]
                                     .into_iter()
                                     .map(|[<adaptor_ #singular>]| {
-                                        let id = [<adaptor_ #singular>].as_ref();
-                                        let record_and_adaptor_record = if ![<stored_ #plural>].contains_key(id) {
+                                        let key = [<adaptor_ #singular>].as_ref();
+                                        let record_and_adaptor_record = if ![<stored_ #plural>].contains_key(key) {
                                             let adaptor_record = [<adaptor_ #singular>].clone();
                                             [<stored_ #plural>]
-                                                .entry(id.clone())
+                                                .entry(key.clone())
                                                 .or_insert((
                                                     #sync_ptr::new([<adaptor_ #singular>].into()),
                                                     #sync_ptr::new(adaptor_record),
                                                 ))
                                         } else {
-                                            [<stored_ #plural>].get(id).unwrap()
+                                            [<stored_ #plural>].get(key).unwrap()
                                         };
                                         (record_and_adaptor_record.0.clone(), record_and_adaptor_record.1.clone())
                                     })
@@ -425,6 +427,8 @@ pub mod read_repositories {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
+            let key_singular = repository.key_singular();
+            let key_plural = repository.key_plural();
             let relation_snakes = repository.relation_snakes();
             let sync_ptr = repository.sync_ptr();
             let read_repositories = repository.read_repositories();
@@ -460,24 +464,24 @@ pub mod read_repositories {
                         )*
 
                         let mut entities: hex_arch_indexmap::IndexMap<
-                            <Self as [<#ty BaseRepository>]>::Id,
+                            <Self as [<#ty BaseRepository>]>::Key,
                             Vec<Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>>,
                         > = hex_arch_indexmap::IndexMap::default();
 
-                        let [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id> = records
+                        let [<#singular _ #key_plural>]: Vec<<Self as [<#ty BaseRepository>]>::Key> = records
                             .iter()
                             .map(|record| record.deref().as_ref().clone().into())
                             .collect();
 
                         for (record, loaded_relations) in hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter()) {
-                            let record_id: <Self as [<#ty BaseRepository>]>::Id = record.deref().as_ref().clone().into();
-                            if entities.contains_key(&record_id) {
-                                entities.get_mut(&record_id).unwrap().push(Entity {
+                            let record_key: <Self as [<#ty BaseRepository>]>::Key = record.deref().as_ref().clone().into();
+                            if entities.contains_key(&record_key) {
+                                entities.get_mut(&record_key).unwrap().push(Entity {
                                     value: record,
                                     relations: loaded_relations,
                                 });
                             } else {
-                                entities.insert(record_id, vec![Entity {
+                                entities.insert(record_key, vec![Entity {
                                     value: record,
                                     relations: loaded_relations,
                                 }]);
@@ -485,11 +489,11 @@ pub mod read_repositories {
                         }
 
                         Ok(
-                            [<#singular _ids>]
+                            [<#singular _ #key_plural>]
                                 .into_iter()
-                                .map(|[<#singular _id>]|
+                                .map(|[<#singular _ #key_singular>]|
                                     entities
-                                        .get_mut(&[<#singular _id>])
+                                        .get_mut(&[<#singular _ #key_singular>])
                                         .unwrap()
                                         .pop()
                                         .unwrap()
@@ -634,7 +638,7 @@ pub mod read_repositories {
                 Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
                     Vec<(
                         <Self as [<#ty BaseRepository>]>::Record,
-                        <Self as [<#relation_ty BaseRepository>]>::Id,
+                        <Self as [<#relation_ty BaseRepository>]>::Key,
                     )>
                 } } },
             };
@@ -668,6 +672,7 @@ pub mod read_repositories {
 
             let relation_ty = relation_repository.ty();
             let relation_singular = relation_repository.singular();
+            let relation_key_singular = relation_repository.key_singular();
             let sync_ptr = repository.sync_ptr();
             let read_repositories = repository.read_repositories();
 
@@ -684,8 +689,8 @@ pub mod read_repositories {
                 Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
                     Vec<(
                         Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>,
-                        <Self as [<#ty BaseRepository>]>::Id,
-                        <Self as [<#relation_ty BaseRepository>]>::Id,
+                        <Self as [<#ty BaseRepository>]>::Key,
+                        <Self as [<#relation_ty BaseRepository>]>::Key,
                     )>
                 } } },
             };
@@ -735,7 +740,7 @@ pub mod read_repositories {
                     }))
                 } },
                 Cardinality::Many => quote! { hex_arch_paste! {
-                    let [<#relation_singular _id>] = #relation_singular.as_ref().clone();
+                    let [<#relation_singular _ #relation_key_singular>] = #relation_singular.as_ref().clone();
 
                     let adaptor_records: Vec<_> = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?
                         .into_iter()
@@ -756,21 +761,21 @@ pub mod read_repositories {
                     Ok(
                         hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter())
                             .map(|(record, loaded_relations)| {
-                                let record_id: <Self as [<#ty BaseRepository>]>::Id = record.deref().as_ref().clone().into();
+                                let record_key: <Self as [<#ty BaseRepository>]>::Key = record.deref().as_ref().clone().into();
                                 (
                                     Entity {
                                         value: record,
                                         relations: loaded_relations,
                                     },
-                                    record_id,
-                                    [<#relation_singular _id>].clone(),
+                                    record_key,
+                                    [<#relation_singular _ #relation_key_singular>].clone(),
                                 )
                             })
                             .collect()
                     )
                 } },
                 Cardinality::AtLeastOne => quote! { hex_arch_paste! {
-                    let [<#relation_singular _id>] = #relation_singular.as_ref().clone();
+                    let [<#relation_singular _ #relation_key_singular>] = #relation_singular.as_ref().clone();
 
                     let adaptor_records: Vec<_> = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?
                         .into_iter()
@@ -795,14 +800,14 @@ pub mod read_repositories {
                     Ok(
                         hex_arch_izip!(records.into_iter(), all_loaded_relations.into_iter())
                             .map(|(record, loaded_relations)| {
-                                let record_id: <Self as [<#ty BaseRepository>]>::Id = record.deref().as_ref().clone().into();
+                                let record_key: <Self as [<#ty BaseRepository>]>::Key = record.deref().as_ref().clone().into();
                                 (
                                     Entity {
                                         value: record,
                                         relations: loaded_relations,
                                     },
-                                    record_id,
-                                    [<#relation_singular _id>].clone(),
+                                    record_key,
+                                    [<#relation_singular _ #relation_key_singular>].clone(),
                                 )
                             })
                             .collect()
@@ -849,8 +854,8 @@ pub mod read_repositories {
                 Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
                     Vec<(
                         Entity<#sync_ptr<#ty>, [<Loaded #ty Relations>]>,
-                        <Self as [<#ty BaseRepository>]>::Id,
-                        <Self as [<#relation_ty BaseRepository>]>::Id,
+                        <Self as [<#ty BaseRepository>]>::Key,
+                        <Self as [<#relation_ty BaseRepository>]>::Key,
                     )>
                 } } },
             };
@@ -932,23 +937,23 @@ pub mod read_repositories {
                     Ok(entity_options)
                 } },
                 Cardinality::Many => quote! { hex_arch_paste! {
-                    let adaptor_records_and_parent_ids = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
+                    let adaptor_records_and_parent_keys = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
 
-                    let (adaptor_records, parent_ids) = hex_arch_transpose_2(adaptor_records_and_parent_ids);
+                    let (adaptor_records, parent_keys) = hex_arch_transpose_2(adaptor_records_and_parent_keys);
 
                     let (records, [<#plural _ptrs>]) = self.[<store_ #plural>](adaptor_records);
                     let #plural: Vec<_> = [<#plural _ptrs>].iter().map(|[<#plural _ptr>]| [<#plural _ptr>].deref()).collect();
 
-                    let records_and_parent_ids: Vec<_> = hex_arch_izip!(records.into_iter(), parent_ids.into_iter()).collect();
+                    let records_and_parent_keys: Vec<_> = hex_arch_izip!(records.into_iter(), parent_keys.into_iter()).collect();
 
-                    let unique_record_ids: Vec<<Self as [<#ty BaseRepository>]>::Id> = records_and_parent_ids
+                    let unique_record_keys: Vec<<Self as [<#ty BaseRepository>]>::Key> = records_and_parent_keys
                         .iter()
                         .map(|(record, _)| record.deref().as_ref())
                         .unique()
-                        .map(|record_id_ref| record_id_ref.clone().into())
+                        .map(|record_key_ref| record_key_ref.clone().into())
                         .collect();
 
-                    let mut all_loaded_relations: Vec<_> = (0..unique_record_ids.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
+                    let mut all_loaded_relations: Vec<_> = (0..unique_record_keys.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
                         if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
@@ -957,55 +962,55 @@ pub mod read_repositories {
                     )*
 
                     let all_loaded_relations: hex_arch_indexmap::IndexMap<_, _> = hex_arch_izip!(
-                        unique_record_ids.into_iter(),
+                        unique_record_keys.into_iter(),
                         all_loaded_relations.into_iter(),
                     ).collect();
 
                     Ok(
-                        records_and_parent_ids
+                        records_and_parent_keys
                             .into_iter()
-                            .map(|(record, parent_id)| {
-                                let record_id: <Self as [<#ty BaseRepository>]>::Id = record.deref().as_ref().clone().into();
+                            .map(|(record, parent_key)| {
+                                let record_key: <Self as [<#ty BaseRepository>]>::Key = record.deref().as_ref().clone().into();
                                 (
                                     Entity {
                                         value: record,
-                                        relations: all_loaded_relations[&record_id].clone(),
+                                        relations: all_loaded_relations[&record_key].clone(),
                                     },
-                                    record_id,
-                                    parent_id,
+                                    record_key,
+                                    parent_key,
                                 )
                             })
                             .collect()
                     )
                 } },
                 Cardinality::AtLeastOne => quote! { hex_arch_paste! {
-                    let adaptor_records_and_parent_ids = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
+                    let adaptor_records_and_parent_keys = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
 
-                    let unique_parent_ids_found: Vec<_> = adaptor_records_and_parent_ids
+                    let unique_parent_keys_found: Vec<_> = adaptor_records_and_parent_keys
                         .iter()
-                        .map(|(_, parent_id)| parent_id)
+                        .map(|(_, parent_key)| parent_key)
                         .unique()
                         .collect();
 
-                    if unique_parent_ids_found.len() != #relation_plural.len() {
+                    if unique_parent_keys_found.len() != #relation_plural.len() {
                         return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found());
                     }
 
-                    let (adaptor_records, parent_ids) = hex_arch_transpose_2(adaptor_records_and_parent_ids);
+                    let (adaptor_records, parent_keys) = hex_arch_transpose_2(adaptor_records_and_parent_keys);
 
                     let (records, [<#plural _ptrs>]) = self.[<store_ #plural>](adaptor_records);
                     let #plural: Vec<_> = [<#plural _ptrs>].iter().map(|ptr| ptr.deref()).collect();
 
-                    let records_and_parent_ids: Vec<_> = hex_arch_izip!(records.into_iter(), parent_ids.into_iter()).collect();
+                    let records_and_parent_keys: Vec<_> = hex_arch_izip!(records.into_iter(), parent_keys.into_iter()).collect();
 
-                    let unique_record_ids: Vec<<Self as [<#ty BaseRepository>]>::Id> = records_and_parent_ids
+                    let unique_record_keys: Vec<<Self as [<#ty BaseRepository>]>::Key> = records_and_parent_keys
                         .iter()
                         .map(|(record, _)| record.deref().as_ref())
                         .unique()
-                        .map(|record_id_ref| record_id_ref.clone().into())
+                        .map(|record_key_ref| record_key_ref.clone().into())
                         .collect();
 
-                    let mut all_loaded_relations: Vec<_> = (0..unique_record_ids.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
+                    let mut all_loaded_relations: Vec<_> = (0..unique_record_keys.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
                         if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
@@ -1014,22 +1019,22 @@ pub mod read_repositories {
                     )*
 
                     let all_loaded_relations: hex_arch_indexmap::IndexMap<_, _> = hex_arch_izip!(
-                        unique_record_ids.into_iter(),
+                        unique_record_keys.into_iter(),
                         all_loaded_relations.into_iter(),
                     ).collect();
 
                     Ok(
-                        records_and_parent_ids
+                        records_and_parent_keys
                             .into_iter()
-                            .map(|(record, parent_id)| {
-                                let record_id: <Self as [<#ty BaseRepository>]>::Id = record.deref().as_ref().clone().into();
+                            .map(|(record, parent_key)| {
+                                let record_key: <Self as [<#ty BaseRepository>]>::Key = record.deref().as_ref().clone().into();
                                 (
                                     Entity {
                                         value: record,
-                                        relations: all_loaded_relations[&record_id].clone(),
+                                        relations: all_loaded_relations[&record_key].clone(),
                                     },
-                                    record_id,
-                                    parent_id,
+                                    record_key,
+                                    parent_key,
                                 )
                             })
                             .collect()
@@ -1148,17 +1153,18 @@ pub mod read_repositories {
             }
         }
 
-        pub fn load_ids_by_multiple(repository: &RepositoryInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
+        pub fn load_keys_by_multiple(repository: &RepositoryInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
             let ty = repository.ty();
             let relation_ty = relation_repository.ty();
+            let relation_key_plural = relation_repository.key_plural();
             let relation_singular = relation_repository.singular();
-            let fn_name = op_ids_by_multiple_fn_name("load", repository, relation_repository);
+            let fn_name = op_keys_by_multiple_fn_name("load", repository, relation_repository);
             quote! {
                 hex_arch_paste! {
                     pub (crate) fn #fn_name(
-                        [<#relation_singular _ids>]: Vec<<Self as [<#relation_ty BaseRepository>]>::Id>,
+                        [<#relation_singular _ #relation_key_plural>]: Vec<<Self as [<#relation_ty BaseRepository>]>::Key>,
                         client: <Self as BaseRepository>::Client<'_>,
-                    ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Id>, <Self as BaseRepository>::Error> {
+                    ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Key>, <Self as BaseRepository>::Error> {
                         #body
                     }
                 }
@@ -1212,10 +1218,10 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn get<Adaptor: #read_repositories>(id: <Adaptor as [<#ty BaseRepository>]>::Id) -> [<Get #ty Builder>]<Adaptor> {
+                        pub fn get<Adaptor: #read_repositories>(key: <Adaptor as [<#ty BaseRepository>]>::Key) -> [<Get #ty Builder>]<Adaptor> {
                             [<Get #ty Builder>] {
                                 adaptor: Adaptor::default(),
-                                load_adaptor_record: Box::new(move |client| Ok(Adaptor::[<load_ #plural>](vec![id], client)?.pop().unwrap())),
+                                load_adaptor_record: Box::new(move |client| Ok(Adaptor::[<load_ #plural>](vec![key], client)?.pop().unwrap())),
                                 load_relations: [<Load #ty Relations>]::default(),
                             }
                         }
@@ -1289,11 +1295,11 @@ pub mod read_repositories {
                             }
                         }
 
-                        pub fn get_batch<Adaptor: #read_repositories>(ids: Vec<<Adaptor as [<#ty BaseRepository>]>::Id>) -> [<Get #ty sBuilder>]<Adaptor> {
+                        pub fn get_batch<Adaptor: #read_repositories>(keys: Vec<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<Get #ty sBuilder>]<Adaptor> {
                             [<Get #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
-                                num_requested_records: ids.len() as isize,
-                                load_adaptor_records: Box::new(move |client| Adaptor::[<load_ #plural>](ids, client)),
+                                num_requested_records: keys.len() as isize,
+                                load_adaptor_records: Box::new(move |client| Adaptor::[<load_ #plural>](keys, client)),
                                 load_relations: [<Load #ty Relations>]::default(),
                             }
                         }
@@ -1357,10 +1363,10 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn try_get<Adaptor: #read_repositories>(id: <Adaptor as [<#ty BaseRepository>]>::Id) -> [<TryGet #ty Builder>]<Adaptor> {
+                        pub fn try_get<Adaptor: #read_repositories>(key: <Adaptor as [<#ty BaseRepository>]>::Key) -> [<TryGet #ty Builder>]<Adaptor> {
                             [<TryGet #ty Builder>] {
                                 adaptor: Adaptor::default(),
-                                try_load_adaptor_record: Box::new(move |client| Ok(Adaptor::[<try_load_ #plural>](vec![id], client)?.pop().unwrap())),
+                                try_load_adaptor_record: Box::new(move |client| Ok(Adaptor::[<try_load_ #plural>](vec![key], client)?.pop().unwrap())),
                                 load_relations: [<Load #ty Relations>]::default(),
                             }
                         }
@@ -1425,11 +1431,11 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn try_get_batch<Adaptor: #read_repositories>(ids: Vec<<Adaptor as [<#ty BaseRepository>]>::Id>) -> [<TryGet #ty sBuilder>]<Adaptor> {
+                        pub fn try_get_batch<Adaptor: #read_repositories>(keys: Vec<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<TryGet #ty sBuilder>]<Adaptor> {
                             [<TryGet #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
-                                num_requested_records: ids.len() as isize,
-                                try_load_adaptor_records: Box::new(move |client| Adaptor::[<try_load_ #plural>](ids, client)),
+                                num_requested_records: keys.len() as isize,
+                                try_load_adaptor_records: Box::new(move |client| Adaptor::[<try_load_ #plural>](keys, client)),
                                 load_relations: [<Load #ty Relations>]::default(),
                             }
                         }
@@ -1498,6 +1504,7 @@ pub mod write_repositories {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
+            let key_plural = repository.key_plural();
 
             let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
 
@@ -1505,7 +1512,7 @@ pub mod write_repositories {
                 hex_arch_paste! {
                     pub trait [<#ty WriteRepository>]: [<#ty ReadRepository>] {
                         fn [<delete_ #plural>](
-                            [<#singular _ids>]: Vec<<Self as [<#ty BaseRepository>]>::Id>,
+                            [<#singular _ #key_plural>]: Vec<<Self as [<#ty BaseRepository>]>::Key>,
                             client: Self::Client<'_>,
                         ) -> Result<usize, Self::Error>
                             #body
@@ -1537,20 +1544,20 @@ pub mod write_repositories {
             quote! {
                 hex_arch_paste! {
                     pub struct [<Delete #ty Builder>]<Adaptor: [<#ty WriteRepository>]> {
-                        id: <Adaptor as [<#ty BaseRepository>]>::Id,
+                        key: <Adaptor as [<#ty BaseRepository>]>::Key,
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>]> [<Delete #ty Builder>]<Adaptor> {
                         pub fn run(self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<usize, <Adaptor as BaseRepository>::Error> {
                             let _write_lock = Adaptor::write()?;
-                            Adaptor::[<delete_ #plural>](vec![self.id], client)
+                            Adaptor::[<delete_ #plural>](vec![self.key], client)
                         }
                     }
 
                     impl #ty {
-                        pub fn delete<Adaptor: [<#ty WriteRepository>]>(id: <Adaptor as [<#ty BaseRepository>]>::Id) -> [<Delete #ty Builder>]<Adaptor> {
+                        pub fn delete<Adaptor: [<#ty WriteRepository>]>(key: <Adaptor as [<#ty BaseRepository>]>::Key) -> [<Delete #ty Builder>]<Adaptor> {
                             [<Delete #ty Builder>] {
-                                id,
+                                key,
                             }
                         }
                     }
@@ -1565,20 +1572,20 @@ pub mod write_repositories {
             quote! {
                 hex_arch_paste! {
                     pub struct [<Delete #ty sBuilder>]<Adaptor: [<#ty WriteRepository>]> {
-                        ids: Vec<<Adaptor as [<#ty BaseRepository>]>::Id>,
+                        keys: Vec<<Adaptor as [<#ty BaseRepository>]>::Key>,
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>]> [<Delete #ty sBuilder>]<Adaptor> {
                         pub fn run(self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<usize, <Adaptor as BaseRepository>::Error> {
                             let _write_lock = Adaptor::write()?;
-                            Adaptor::[<delete_ #plural>](self.ids, client)
+                            Adaptor::[<delete_ #plural>](self.keys, client)
                         }
                     }
 
                     impl #ty {
-                        pub fn delete_batch<Adaptor: [<#ty WriteRepository>]>(ids: Vec<<Adaptor as [<#ty BaseRepository>]>::Id>) -> [<Delete #ty sBuilder>]<Adaptor> {
+                        pub fn delete_batch<Adaptor: [<#ty WriteRepository>]>(keys: Vec<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<Delete #ty sBuilder>]<Adaptor> {
                             [<Delete #ty sBuilder>] {
-                                ids,
+                                keys,
                             }
                         }
                     }
@@ -1852,10 +1859,12 @@ pub mod shared {
         format_ident!("{}_{}_by_{}", op, relation_plural, relation_ty_plural)
     }
 
-    pub fn op_ids_by_multiple_fn_name(op: &str, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> Ident {
+    pub fn op_keys_by_multiple_fn_name(op: &str, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> Ident {
         let relation_singular = repository.singular();
+        let key_plural = repository.key_plural();
         let relation_ty_singular = relation_repository.singular();
-        format_ident!("{}_{}_ids_by_{}_ids", op, relation_singular, relation_ty_singular)
+        let relation_key_plural = relation_repository.key_plural();
+        format_ident!("{}_{}_{}_by_{}_{}", op, relation_singular, key_plural, relation_ty_singular, relation_key_plural)
     }
 
     pub fn load_in_single(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
@@ -1878,15 +1887,15 @@ pub mod shared {
             },
             Cardinality::Many => quote! {
                 hex_arch_paste! {
-                    let related_entities_and_ids = self.#get_by_single_fn_name(&#singular, load_relations, client)?;
-                    let related_entities: Vec<_> = related_entities_and_ids.into_iter().map(|(related_entity, _, _)| related_entity).collect();
+                    let related_entities_and_keys = self.#get_by_single_fn_name(&#singular, load_relations, client)?;
+                    let related_entities: Vec<_> = related_entities_and_keys.into_iter().map(|(related_entity, _, _)| related_entity).collect();
                     loaded_relations.#relation_snake = Some(Box::new(related_entities));
                 }
             },
             Cardinality::AtLeastOne => quote! {
                 hex_arch_paste! {
-                    let related_entities_and_ids = self.#get_by_single_fn_name(&#singular, load_relations, client)?;
-                    let related_entities: Vec<_> = related_entities_and_ids.into_iter().map(|(related_entity, _, _)| related_entity).collect();
+                    let related_entities_and_keys = self.#get_by_single_fn_name(&#singular, load_relations, client)?;
+                    let related_entities: Vec<_> = related_entities_and_keys.into_iter().map(|(related_entity, _, _)| related_entity).collect();
                     if related_entities.len() == 0 {
                         return Err(<<Self as BaseRepository>::Error as RepositoryError>::not_found());
                     }
@@ -1926,46 +1935,46 @@ pub mod shared {
             },
             Cardinality::Many => quote! {
                 hex_arch_paste! {
-                    let all_related_entities_and_ids = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
+                    let all_related_entities_and_keys = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
 
-                    let mut all_related_entities_by_parent_ids: hex_arch_indexmap::IndexMap<
-                        <Self as [<#ty BaseRepository>]>::Id,
+                    let mut all_related_entities_by_parent_keys: hex_arch_indexmap::IndexMap<
+                        <Self as [<#ty BaseRepository>]>::Key,
                         hex_arch_indexmap::IndexMap<
-                            <Self as [<#relation_ty BaseRepository>]>::Id,
+                            <Self as [<#relation_ty BaseRepository>]>::Key,
                             Vec<Entity<#sync_ptr<#relation_ty>, [<Loaded #relation_ty Relations>]>>,
                         >,
                     > = hex_arch_indexmap::IndexMap::default();
 
-                    let mut parent_id_counts: std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Id, usize> = std::collections::HashMap::default();
+                    let mut parent_key_counts: std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Key, usize> = std::collections::HashMap::default();
                     for #singular in #plural.iter() {
-                        parent_id_counts.entry(#singular.as_ref().clone())
+                        parent_key_counts.entry(#singular.as_ref().clone())
                             .and_modify(|count| *count += 1)
                             .or_insert(1);
                     }
 
-                    for (related_entity, related_id, parent_id) in all_related_entities_and_ids.into_iter() {
-                        if !all_related_entities_by_parent_ids.contains_key(&parent_id) {
-                            all_related_entities_by_parent_ids.insert(parent_id.clone(), hex_arch_indexmap::IndexMap::default());
+                    for (related_entity, related_key, parent_key) in all_related_entities_and_keys.into_iter() {
+                        if !all_related_entities_by_parent_keys.contains_key(&parent_key) {
+                            all_related_entities_by_parent_keys.insert(parent_key.clone(), hex_arch_indexmap::IndexMap::default());
                         }
 
-                        let all_related_entities_by_related_ids = all_related_entities_by_parent_ids.get_mut(&parent_id).unwrap();
+                        let all_related_entities_by_related_keys = all_related_entities_by_parent_keys.get_mut(&parent_key).unwrap();
 
-                        if !all_related_entities_by_related_ids.contains_key(&related_id) {
-                            let parent_id_count = parent_id_counts.get(&parent_id).unwrap();
-                            all_related_entities_by_related_ids.insert(related_id, dupe(related_entity, *parent_id_count));
+                        if !all_related_entities_by_related_keys.contains_key(&related_key) {
+                            let parent_key_count = parent_key_counts.get(&parent_key).unwrap();
+                            all_related_entities_by_related_keys.insert(related_key, dupe(related_entity, *parent_key_count));
                         } else {
-                            let parent_id_count = parent_id_counts.get(&parent_id).unwrap();
-                            let related_entities = all_related_entities_by_related_ids.get_mut(&related_id).unwrap();
-                            for dupe in dupe_iter(related_entity, *parent_id_count) {
+                            let parent_key_count = parent_key_counts.get(&parent_key).unwrap();
+                            let related_entities = all_related_entities_by_related_keys.get_mut(&related_key).unwrap();
+                            for dupe in dupe_iter(related_entity, *parent_key_count) {
                                 related_entities.push(dupe);
                             }
                         }
                     }
 
                     for (i, loaded_relations) in all_loaded_relations.iter_mut().enumerate() {
-                        loaded_relations.#relation_snake = Some(Box::new(match all_related_entities_by_parent_ids.get_mut(#plural[i].as_ref()) {
-                            Some(all_related_entities_by_related_ids) => {
-                                all_related_entities_by_related_ids
+                        loaded_relations.#relation_snake = Some(Box::new(match all_related_entities_by_parent_keys.get_mut(#plural[i].as_ref()) {
+                            Some(all_related_entities_by_related_keys) => {
+                                all_related_entities_by_related_keys
                                     .values_mut()
                                     .map(|related_entity_dupes| related_entity_dupes.pop().unwrap())
                                     .collect()
@@ -1977,46 +1986,46 @@ pub mod shared {
             },
             Cardinality::AtLeastOne => quote! {
                 hex_arch_paste! {
-                    let all_related_entities_and_ids = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
+                    let all_related_entities_and_keys = self.#get_by_multiple_fn_name(&#plural, load_relations, client)?;
 
-                    let mut all_related_entities_by_parent_ids: hex_arch_indexmap::IndexMap<
-                        <Self as [<#ty BaseRepository>]>::Id,
+                    let mut all_related_entities_by_parent_keys: hex_arch_indexmap::IndexMap<
+                        <Self as [<#ty BaseRepository>]>::Key,
                         hex_arch_indexmap::IndexMap<
-                            <Self as [<#relation_ty BaseRepository>]>::Id,
+                            <Self as [<#relation_ty BaseRepository>]>::Key,
                             Vec<Entity<#sync_ptr<#relation_ty>, [<Loaded #relation_ty Relations>]>>,
                         >,
                     > = hex_arch_indexmap::IndexMap::default();
 
-                    let mut parent_id_counts: std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Id, usize> = std::collections::HashMap::default();
+                    let mut parent_key_counts: std::collections::HashMap<<Self as [<#ty BaseRepository>]>::Key, usize> = std::collections::HashMap::default();
                     for #singular in #plural.iter() {
-                        parent_id_counts.entry(#singular.as_ref().clone())
+                        parent_key_counts.entry(#singular.as_ref().clone())
                             .and_modify(|count| *count += 1)
                             .or_insert(1);
                     }
 
-                    for (related_entity, related_id, parent_id) in all_related_entities_and_ids.into_iter() {
-                        if !all_related_entities_by_parent_ids.contains_key(&parent_id) {
-                            all_related_entities_by_parent_ids.insert(parent_id.clone(), hex_arch_indexmap::IndexMap::default());
+                    for (related_entity, related_key, parent_key) in all_related_entities_and_keys.into_iter() {
+                        if !all_related_entities_by_parent_keys.contains_key(&parent_key) {
+                            all_related_entities_by_parent_keys.insert(parent_key.clone(), hex_arch_indexmap::IndexMap::default());
                         }
 
-                        let all_related_entities_by_related_ids = all_related_entities_by_parent_ids.get_mut(&parent_id).unwrap();
+                        let all_related_entities_by_related_keys = all_related_entities_by_parent_keys.get_mut(&parent_key).unwrap();
 
-                        if !all_related_entities_by_related_ids.contains_key(&related_id) {
-                            let parent_id_count = parent_id_counts.get(&parent_id).unwrap();
-                            all_related_entities_by_related_ids.insert(related_id, dupe(related_entity, *parent_id_count));
+                        if !all_related_entities_by_related_keys.contains_key(&related_key) {
+                            let parent_key_count = parent_key_counts.get(&parent_key).unwrap();
+                            all_related_entities_by_related_keys.insert(related_key, dupe(related_entity, *parent_key_count));
                         } else {
-                            let parent_id_count = parent_id_counts.get(&parent_id).unwrap();
-                            let related_entities = all_related_entities_by_related_ids.get_mut(&related_id).unwrap();
-                            for dupe in dupe_iter(related_entity, *parent_id_count) {
+                            let parent_key_count = parent_key_counts.get(&parent_key).unwrap();
+                            let related_entities = all_related_entities_by_related_keys.get_mut(&related_key).unwrap();
+                            for dupe in dupe_iter(related_entity, *parent_key_count) {
                                 related_entities.push(dupe);
                             }
                         }
                     }
 
                     for (i, loaded_relations) in all_loaded_relations.iter_mut().enumerate() {
-                        loaded_relations.#relation_snake = Some(Box::new(match all_related_entities_by_parent_ids.get_mut(#plural[i].as_ref()) {
-                            Some(all_related_entities_by_related_ids) => {
-                                let related_entities: Vec<_> = all_related_entities_by_related_ids
+                        loaded_relations.#relation_snake = Some(Box::new(match all_related_entities_by_parent_keys.get_mut(#plural[i].as_ref()) {
+                            Some(all_related_entities_by_related_keys) => {
+                                let related_entities: Vec<_> = all_related_entities_by_related_keys
                                     .values_mut()
                                     .map(|related_entity_dupes| related_entity_dupes.pop().unwrap())
                                     .collect();
