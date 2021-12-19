@@ -1246,7 +1246,7 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>(key: Q) -> [<Get #ty Builder>]<Adaptor> {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> [<Get #ty Builder>]<Adaptor> {
                                                 [<Get #ty Builder>] {
                                                     adaptor: Adaptor::default(),
                                                     load_adaptor_record: Box::new(move |client| Ok(Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](vec![key.into()], client)?.pop().unwrap())),
@@ -1300,7 +1300,7 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn get<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>(key: Q) -> [<Get #ty Builder>]<Adaptor> {
+                        pub fn get<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<Get #ty Builder>]<Adaptor> {
                             [<Get #ty Builder>] {
                                 adaptor: Adaptor::default(),
                                 load_adaptor_record: Box::new(move |client| Ok(Adaptor::[<load_ #plural>](vec![key.into()], client)?.pop().unwrap())),
@@ -1355,7 +1355,7 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>(keys: Vec<Q>) -> [<Get #ty sBuilder>]<Adaptor> {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>) -> [<Get #ty sBuilder>]<Adaptor> {
                                                 [<Get #ty sBuilder>] {
                                                     adaptor: Adaptor::default(),
                                                     num_requested_records: keys.len() as isize,
@@ -1383,7 +1383,7 @@ pub mod read_repositories {
                                     quote! {
                                         hex_arch_paste! {
                                             impl #ty {
-                                                pub fn #singular_fn_name<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>(key: Q) -> [<Get #ty sBuilder>]<Adaptor> {
+                                                pub fn #singular_fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> [<Get #ty sBuilder>]<Adaptor> {
                                                     [<Get #ty sBuilder>] {
                                                         adaptor: Adaptor::default(),
                                                         num_requested_records: -1,
@@ -1442,7 +1442,7 @@ pub mod read_repositories {
                                         }
 
                                         impl #ty {
-                                            pub fn #plural_fn_name<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>(keys: Vec<Q>) -> [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor> {
+                                            pub fn #plural_fn_name<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>) -> [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor> {
                                                 [<Get #ty sByMany #relation_ty sBuilder>] {
                                                     adaptor: Adaptor::default(),
                                                     load_adaptor_records_and_parent_keys: Box::new(move |client|
@@ -1515,7 +1515,7 @@ pub mod read_repositories {
                             }
                         }
 
-                        pub fn get_batch<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>(keys: Vec<Q>) -> [<Get #ty sBuilder>]<Adaptor> {
+                        pub fn get_batch<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>) -> [<Get #ty sBuilder>]<Adaptor> {
                             [<Get #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
                                 num_requested_records: keys.len() as isize,
@@ -1576,7 +1576,7 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>(key: Q) -> [<TryGet #ty Builder>]<Adaptor> {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> [<TryGet #ty Builder>]<Adaptor> {
                                                 [<TryGet #ty Builder>] {
                                                     adaptor: Adaptor::default(),
                                                     try_load_adaptor_record: Box::new(move |client| Ok(Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](vec![key.into()], client)?.pop().unwrap())),
@@ -1595,7 +1595,7 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>(key: Q) -> [<TryGet #ty Builder>]<Adaptor> {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> [<TryGet #ty Builder>]<Adaptor> {
                                                 [<TryGet #ty Builder>] {
                                                     adaptor: Adaptor::default(),
                                                     try_load_adaptor_record: Box::new(move |client| match Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](vec![key.into()], client) {
@@ -1658,7 +1658,7 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn try_get<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>(key: Q) -> [<TryGet #ty Builder>]<Adaptor> {
+                        pub fn try_get<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<TryGet #ty Builder>]<Adaptor> {
                             [<TryGet #ty Builder>] {
                                 adaptor: Adaptor::default(),
                                 try_load_adaptor_record: Box::new(move |client| Ok(Adaptor::[<try_load_ #plural>](vec![key.into()], client)?.pop().unwrap())),
@@ -1711,7 +1711,7 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>(keys: Vec<Q>) -> [<TryGet #ty sBuilder>]<Adaptor> {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>) -> [<TryGet #ty sBuilder>]<Adaptor> {
                                                 [<TryGet #ty sBuilder>] {
                                                     adaptor: Adaptor::default(),
                                                     num_requested_records: keys.len() as isize,
@@ -1776,7 +1776,7 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn try_get_batch<Adaptor: #read_repositories, Q: 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>(keys: Vec<Q>) -> [<TryGet #ty sBuilder>]<Adaptor> {
+                        pub fn try_get_batch<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>) -> [<TryGet #ty sBuilder>]<Adaptor> {
                             [<TryGet #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
                                 num_requested_records: keys.len() as isize,
