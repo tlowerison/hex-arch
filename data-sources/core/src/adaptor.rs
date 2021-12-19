@@ -9,9 +9,14 @@ use repositories_core::{
         get_load_by_field_multiple_fn_name,
         load_by_field_multiple,
         load_by_multiple,
+        load_by_multiple_keys,
         load_keys_by_multiple,
     },
-    shared::{op_by_multiple_fn_name, op_keys_by_multiple_fn_name},
+    shared::{
+        op_by_multiple_fn_name,
+        op_by_multiple_keys_fn_name,
+        op_keys_by_multiple_fn_name,
+    },
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -573,28 +578,131 @@ pub fn read_repository_impl(
 
             (
                 op_by_multiple_fn_name("load", relation, relation_repository),
-                load_by_multiple(relation, repository_input, relation_repository, &quote! {
-                    {
-                        hex_arch_paste! {
-                            let [<#relation_singular _ #relation_key_plural>]: Vec<_> = #relation_plural
-                                .into_iter()
-                                .map(|x| x.as_ref().clone())
-                                .collect();
-                            Ok(load_by! {
-                                #cardinality,
-                                [<#entity_prefix #ty>],
-                                [<#entity_prefix #relation_ty>],
-                                [<#relation_singular _ #relation_key_plural>],
-                                #relation_key_ty,
-                                client,
-                                #namespace,
-                                #relation_namespace,
-                                #relation_key_singular,
-                                #order_by_tokens
-                            })
+                load_by_multiple(relation, repository_input, relation_repository, &(
+                    if *relation_ty == *ty {
+                        quote! {
+                            {
+                                hex_arch_paste! {
+                                    let [<#singular _ #key_plural>]: Vec<_> = #plural
+                                        .into_iter()
+                                        .map(|x| x.as_ref().clone())
+                                        .collect();
+                                    Ok(load! {
+                                        #cardinality,
+                                        [<#entity_prefix #ty>],
+                                        [<#singular _ #key_plural>],
+                                        #key_ty,
+                                        client,
+                                        #namespace,
+                                        #key_singular,
+                                    })
+                                }
+                            }
+                        }
+                    } else {
+                        quote! {
+                            {
+                                hex_arch_paste! {
+                                    let [<#relation_singular _ #relation_key_plural>]: Vec<_> = #relation_plural
+                                        .into_iter()
+                                        .map(|x| x.as_ref().clone())
+                                        .collect();
+                                    Ok(load_by! {
+                                        #cardinality,
+                                        [<#entity_prefix #ty>],
+                                        [<#entity_prefix #relation_ty>],
+                                        [<#relation_singular _ #relation_key_plural>],
+                                        #relation_key_ty,
+                                        client,
+                                        #namespace,
+                                        #relation_namespace,
+                                        #relation_key_singular,
+                                        #order_by_tokens
+                                    })
+                                }
+                            }
                         }
                     }
-                }),
+                )),
+            )
+        })
+        .collect();
+
+    let mut all_load_by_multiple_keys: HashMap<Ident, TokenStream2> = inward_relations
+        .iter()
+        .map(|(relation, relation_repository)| {
+            let relation_ty = relation_repository.ty();
+            let relation_singular = relation_repository.singular();
+            let relation_key_ty = relation_repository.key_ty();
+            let relation_key_singular = relation_repository.key_singular();
+            let relation_key_plural = relation_repository.key_plural();
+            let cardinality = &relation.cardinality;
+            let relation_namespace = namespaces.get(relation_ty).unwrap();
+
+            let relation_snake = relation.snake();
+
+            let (order_by_field, order_by_ordering) = repositories_and_adaptor_entity_inputs
+                .get(relation_ty)
+                .unwrap()
+                .1
+                .as_ref()
+                .map(|adaptor_entity_input|
+                    adaptor_entity_input.children
+                        .iter()
+                        .find(|child_input| child_input.snake == *relation_snake)
+                        .map(|child_input| (child_input.order_by_field.clone(), child_input.order_by_ordering.clone()))
+                )
+                .flatten()
+                .unwrap_or((None, None));
+
+            let order_by_tokens = match order_by_field {
+                Some(order_by_field) => match order_by_ordering {
+                    Some(order_by_ordering) => quote! { #order_by_field #order_by_ordering, },
+                    None => quote! { #order_by_field asc, }
+                },
+                None => quote! {},
+            };
+
+            (
+                op_by_multiple_keys_fn_name("load", relation, relation_repository),
+                load_by_multiple_keys(relation, repository_input, relation_repository, &(
+                    if *relation_ty == *ty {
+                        quote! {
+                            {
+                                hex_arch_paste! {
+                                    Ok(load! {
+                                        #cardinality,
+                                        [<#entity_prefix #ty>],
+                                        [<#singular _ #key_plural>],
+                                        #key_ty,
+                                        client,
+                                        #namespace,
+                                        #key_singular,
+                                    })
+                                }
+                            }
+                        }
+                    } else {
+                        quote! {
+                            {
+                                hex_arch_paste! {
+                                    Ok(load_by! {
+                                        #cardinality,
+                                        [<#entity_prefix #ty>],
+                                        [<#entity_prefix #relation_ty>],
+                                        [<#relation_singular _ #relation_key_plural>],
+                                        #relation_key_ty,
+                                        client,
+                                        #namespace,
+                                        #relation_namespace,
+                                        #relation_key_singular,
+                                        #order_by_tokens
+                                    })
+                                }
+                            }
+                        }
+                    }
+                )),
             )
         })
         .collect();
@@ -631,6 +739,11 @@ pub fn read_repository_impl(
         .map(|inward_relation| (op_by_multiple_fn_name("load", inward_relation.0, inward_relation.1), inward_relation.clone()))
         .collect();
 
+    let inward_relations_by_load_by_keys_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
+        .iter()
+        .map(|inward_relation| (op_by_multiple_keys_fn_name("load", inward_relation.0, inward_relation.1), inward_relation.clone()))
+        .collect();
+
     let mut inward_relations_by_load_keys_by_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
         .iter()
         .map(|inward_relation| (op_keys_by_multiple_fn_name("load", repository_input, inward_relation.1), inward_relation.clone()))
@@ -661,48 +774,29 @@ pub fn read_repository_impl(
         let invalid_load_by_fn_name_message = format!(
             "unrecognized load.by fn for `{}`, expected one of {}",
             ty,
-            load_by_multiples.keys().map(|key| format!("`{}`", key)).collect::<Vec<_>>().join(", "),
+            load_by_multiples
+                .keys()
+                .map(|key| format!("`{}`", key))
+                .chain(all_load_by_multiple_keys.keys().map(|key| format!("`{}`", key)))
+                .collect::<Vec<_>>()
+                .join(", "),
         );
 
         for (load_by_fn_name, body) in adaptor_entity_input.load.by.iter() {
-            if !load_by_multiples.contains_key(load_by_fn_name) {
-                return (syn::Error::new_spanned(load_by_fn_name, &invalid_load_by_fn_name_message).into_compile_error(), vec![]);
-            } else {
+            if load_by_multiples.contains_key(load_by_fn_name) {
                 let inward_relation = inward_relations_by_load_by_fn_names.get(load_by_fn_name).unwrap();
                 load_by_multiples.insert(
                     load_by_fn_name.clone(),
                     load_by_multiple(inward_relation.0, repository_input, inward_relation.1, body),
                 );
-            }
-        }
-
-        let invalid_load_keys_by_fn_name_message = format!(
-            "unrecognized load.keys_by fn for `{}`, expected one of {}",
-            ty,
-            load_keys_by.keys().map(|key| format!("`{}`", key)).collect::<Vec<_>>().join(", "),
-        );
-
-        for (load_keys_by_fn_name, body) in adaptor_entity_input.load.keys_by.iter() {
-            if !load_keys_by.contains_key(load_keys_by_fn_name) {
-                return (syn::Error::new_spanned(load_keys_by_fn_name, &invalid_load_keys_by_fn_name_message).into_compile_error(), vec![]);
+            } else if all_load_by_multiple_keys.contains_key(load_by_fn_name) {
+                let inward_relation = inward_relations_by_load_by_keys_fn_names.get(load_by_fn_name).unwrap();
+                all_load_by_multiple_keys.insert(
+                    load_by_fn_name.clone(),
+                    load_by_multiple_keys(inward_relation.0, repository_input, inward_relation.1, body),
+                );
             } else {
-                let inward_relation = inward_relations_by_load_keys_by_fn_names.get(load_keys_by_fn_name).unwrap();
-                let relation_repository = &inward_relation.1;
-                let relation_ty = relation_repository.ty();
-                let relation_singular = relation_repository.singular();
-                let relation_key_plural = relation_repository.key_plural();
-
-                let fn_def = quote! {
-                    hex_arch_paste! {
-                        pub (crate) fn #load_keys_by_fn_name(
-                            [<#relation_singular _ #relation_key_plural>]: Vec<<Self as [<#relation_ty BaseRepository>]>::Key>,
-                            client: <Self as BaseRepository>::Client<'_>,
-                        ) -> Result<Vec<<Self as [<#ty BaseRepository>]>::Key>, <Self as BaseRepository>::Error> {
-                            #body
-                        }
-                    }
-                };
-                load_keys_by.insert(load_keys_by_fn_name.clone(), fn_def);
+                return (syn::Error::new_spanned(load_by_fn_name, &invalid_load_by_fn_name_message).into_compile_error(), vec![]);
             }
         }
     }
@@ -717,6 +811,7 @@ pub fn read_repository_impl(
     }
 
     let load_by_multiples: Vec<_> = load_by_multiples.into_values().collect();
+    let all_load_by_multiple_keys: Vec<_> = all_load_by_multiple_keys.into_values().collect();
     let load_keys_by: Vec<_> = load_keys_by.drain().collect();
 
     (
@@ -754,6 +849,7 @@ pub fn read_repository_impl(
                     }
 
                     #(#load_by_multiples)*
+                    #(#all_load_by_multiple_keys)*
                 }
             }
         },
