@@ -194,8 +194,8 @@ pub mod read_repositories {
         quote! {
             hex_arch_paste! {
                 pub trait [<#ty BaseRepository>]: BaseRepository {
-                    type Key: Sized + Clone + std::fmt::Debug + Eq + From<#key_type> + Into<#key_type> + PartialEq + std::hash::Hash + 'static;
-                    type Record: Clone + std::fmt::Debug + Sized + AsRef<Self::Key> + Into<Self::Key> + Into<#ty> + 'static;
+                    type Key: 'static + Sized + Clone + std::fmt::Debug + Eq + From<#key_type> + Into<#key_type> + PartialEq + std::hash::Hash;
+                    type Record: 'static + Clone + std::fmt::Debug + Sized + AsRef<Self::Key> + Into<Self::Key> + Into<#ty>;
                 }
             }
         }

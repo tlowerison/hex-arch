@@ -1086,7 +1086,13 @@ pub fn write_repository_impl(
                         }).collect()
                     );
 
-                    let (child_singulars, child_plurals, child_key_plurals) = transpose_3(
+                    let repository_relations: HashMap<Ident, RelationInput> = repository_input.relations
+                        .clone()
+                        .into_iter()
+                        .map(|relation| (relation.snake().clone(), relation))
+                        .collect();
+
+                    let (child_singulars, child_plurals, child_snake_names, child_inner_tys, child_cardinalities) = transpose_5(
                         children
                             .iter()
                             .map(|child| {
@@ -1094,7 +1100,12 @@ pub fn write_repository_impl(
                                 (
                                     repository_and_adaptor_entity_input.0.singular(),
                                     repository_and_adaptor_entity_input.0.plural(),
-                                    repository_and_adaptor_entity_input.0.key_plural(),
+                                    &child.snake,
+                                    inner_ty(&child.ty),
+                                    &repository_relations
+                                        .get(&child.snake)
+                                        .unwrap()
+                                        .cardinality,
                                 )
                             })
                             .collect(),
@@ -1105,21 +1116,26 @@ pub fn write_repository_impl(
                             if *is_child_vec_type {
                                 quote! {
                                     let [<#child_singular _payloads>]: Vec<_> = hex_arch_izip!([<adaptor_ #singular _patches>].iter(), [<all_ #child_singular _payloads>].into_iter())
-                                        .map(|([<adaptor_ #singular _patch>], [<#child_singular _posts>])| {
-                                            let [<#singular _ #key_singular>] = [<adaptor_ #singular _patch>].#key_singular;
-                                            [<#child_singular _posts>]
-                                                .into_iter()
-                                                .map(move |mut [<#child_singular _post>]| {
-                                                    [<#child_singular _post>].[<set_ #singular _ #key_singular>]([<#singular _ #key_singular>]);
-                                                    [<#child_singular _post>]
-                                                })
-                                        })
+                                        .filter_map(|([<adaptor_ #singular _patch>], [<#child_singular _posts>])|
+                                            [<#child_singular _posts>].map(|[<#child_singular _posts>]| {
+                                                let [<#singular _ #key_singular>] = [<adaptor_ #singular _patch>].#key_singular;
+                                                [<#child_singular _posts>]
+                                                    .into_iter()
+                                                    .map(move |mut [<#child_singular _post>]| {
+                                                        [<#child_singular _post>].[<set_ #singular _ #key_singular>]([<#singular _ #key_singular>]);
+                                                        [<#child_singular _post>]
+                                                    })
+                                            })
+                                        )
                                         .flatten()
                                         .collect();
                                 }
                             } else {
                                 quote! {
-                                    let [<#child_singular _payloads>] = [<all_ #child_singular _payloads>];
+                                    let [<#child_singular _payloads>] = [<all_ #child_singular _payloads>]
+                                        .into_iter()
+                                        .filter_map(|x| x)
+                                        .collect();
                                 }
                             }
                         })
@@ -1128,33 +1144,44 @@ pub fn write_repository_impl(
                     let child_ops: Vec<_> = izip!(
                         child_singulars.iter(),
                         child_plurals.iter(),
-                        child_key_plurals.iter(),
+                        child_snake_names.iter(),
+                        child_inner_tys.iter(),
+                        child_cardinalities.iter(),
                         is_child_vec_types.iter(),
                     )
-                        .map(|(child_singular, child_plural, child_key_plural, is_child_vec_type)| {
+                        .map(|(child_singular, child_plural, child_snake_name, child_inner_ty, child_cardinality, is_child_vec_type)| {
                             if *is_child_vec_type {
+                                let keys_from_children = match child_cardinality {
+                                    Cardinality::Many|Cardinality::AtLeastOne => quote! {
+                                        hex_arch_paste! {
+                                            let #child_snake_name: Vec<<Self as [<#child_inner_ty BaseRepository>]>::Key> = #child_snake_name
+                                                .into_iter()
+                                                .map(|x| x.0.into())
+                                                .collect();
+                                        }
+                                    },
+                                    _ => quote! {},
+                                };
                                 quote! {
                                     hex_arch_paste! {
-                                        Self::[<delete_ #child_plural>](
-                                            Self::[<load_ #child_singular _ #child_key_plural _by_ #singular _ #key_plural>](
+                                        if [<#child_singular _payloads>].len() > 0 {
+                                            let #child_snake_name = Self::[<load_ #child_snake_name _by_ #singular _ #key_plural>](
                                                 [<adaptor_ #singular _patches>]
                                                     .iter()
                                                     .map(|[<adaptor_ #singular _patch>]| [<adaptor_ #singular _patch>].#key_singular)
                                                     .collect(),
                                                 client,
-                                            )?,
-                                            client,
-                                        )?;
-                                        Self::[<insert_ #child_plural>]([<#child_singular _payloads>], client)?;
+                                            )?;
+                                            #keys_from_children
+                                            Self::[<delete_ #child_plural>](#child_snake_name, client)?;
+                                            Self::[<insert_ #child_plural>]([<#child_singular _payloads>], client)?;
+                                        }
                                     }
                                 }
                             } else {
                                 quote! {
                                     hex_arch_paste! {
-                                        Self::[<update_ #child_plural>](
-                                            [<#child_singular _payloads>].into_iter().filter_map(|x| x).collect(),
-                                            client,
-                                        )?;
+                                        Self::[<update_ #child_plural>]([<#child_singular _payloads>], client)?;
                                     }
                                 }
                             }
@@ -1176,7 +1203,7 @@ pub fn write_repository_impl(
                         );
 
                         #(
-                            let mut [<all_ #child_singulars _payloads>]: Vec<#child_tys> = Vec::with_capacity(all_child_payloads.len());
+                            let mut [<all_ #child_singulars _payloads>]: Vec<Option<#child_tys>> = Vec::with_capacity(all_child_payloads.len());
                         )*
                         for (#([<#child_singulars _payload>]),*) in all_child_payloads.into_iter() {
                             #(
