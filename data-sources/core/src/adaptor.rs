@@ -739,7 +739,7 @@ pub fn read_repository_impl(
         .map(|inward_relation| (op_by_multiple_fn_name("load", inward_relation.0, inward_relation.1), inward_relation.clone()))
         .collect();
 
-    let inward_relations_by_load_by_keys_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
+    let inward_relations_by_load_keys_by_keys_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
         .iter()
         .map(|inward_relation| (op_by_multiple_keys_fn_name("load", inward_relation.0, inward_relation.1), inward_relation.clone()))
         .collect();
@@ -790,13 +790,35 @@ pub fn read_repository_impl(
                     load_by_multiple(inward_relation.0, repository_input, inward_relation.1, body),
                 );
             } else if all_load_by_multiple_keys.contains_key(load_by_fn_name) {
-                let inward_relation = inward_relations_by_load_by_keys_fn_names.get(load_by_fn_name).unwrap();
+                let inward_relation = inward_relations_by_load_keys_by_keys_fn_names.get(load_by_fn_name).unwrap();
                 all_load_by_multiple_keys.insert(
                     load_by_fn_name.clone(),
                     load_by_multiple_keys(inward_relation.0, repository_input, inward_relation.1, body),
                 );
             } else {
                 return (syn::Error::new_spanned(load_by_fn_name, &invalid_load_by_fn_name_message).into_compile_error(), vec![]);
+            }
+        }
+
+        let invalid_load_keys_by_keys_fn_name_message = format!(
+            "unrecognized load.keys_by fn for `{}`, expected one of {}",
+            ty,
+            load_keys_by
+                .keys()
+                .map(|key| format!("`{}`", key))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+
+        for (load_keys_by_fn_name, body) in adaptor_entity_input.load.keys_by.iter() {
+            if load_keys_by.contains_key(load_keys_by_fn_name) {
+                let inward_relation = inward_relations_by_load_keys_by_fn_names.get(load_keys_by_fn_name).unwrap();
+                load_keys_by.insert(
+                    load_keys_by_fn_name.clone(),
+                    load_keys_by_multiple(repository_input, inward_relation.1, body),
+                );
+            } else {
+                return (syn::Error::new_spanned(load_keys_by_fn_name, &invalid_load_keys_by_keys_fn_name_message).into_compile_error(), vec![]);
             }
         }
     }
@@ -1097,16 +1119,24 @@ pub fn write_repository_impl(
                         children
                             .iter()
                             .map(|child| {
+                                let child_snake = &child.snake;
                                 let repository_and_adaptor_entity_input = repositories_and_adaptor_entity_inputs.get(&inner_ty(&child.ty)).unwrap();
+                                let repository_relation = repository_relations.get(&child.snake).expect(&format!(
+                                    "unrecognized child in `{}`: `{}`; allowed children include: {}",
+                                    quote! { #ty },
+                                    quote! { #child_snake },
+                                    repository_relations
+                                        .keys()
+                                        .map(|key| format!("`{}`", key))
+                                        .collect::<Vec<_>>()
+                                        .join(", "),
+                                ));
                                 (
                                     repository_and_adaptor_entity_input.0.singular(),
                                     repository_and_adaptor_entity_input.0.plural(),
                                     &child.snake,
                                     inner_ty(&child.ty),
-                                    &repository_relations
-                                        .get(&child.snake)
-                                        .unwrap()
-                                        .cardinality,
+                                    &repository_relation.cardinality,
                                 )
                             })
                             .collect(),
