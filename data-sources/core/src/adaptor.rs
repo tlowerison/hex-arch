@@ -875,6 +875,7 @@ pub fn write_repository_impl(
     let namespace = namespaces.get(ty).unwrap();
     let key_singular = repository_input.key_singular();
     let key_plural = repository_input.key_plural();
+    let key_ty = repository_input.key_ty();
 
     let mut insert_body = quote! {
         hex_arch_paste! {
@@ -1215,7 +1216,47 @@ pub fn write_repository_impl(
 
                         #( #child_ops )*
 
-                        let [<adaptor_ #plural>] = update! { #ty, #namespace, [<adaptor_ #singular _patches>], client };
+                        // reverse so we can pop from update / load vecs in O(n) instead of using remove in O(n^2)
+                        let [<adaptor_ #singular _patches>]: Vec<_> = [<adaptor_ #singular _patches>]
+                            .into_iter()
+                            .rev()
+                            .collect();
+
+                        let is_changesets: Vec<_> = [<adaptor_ #singular _patches>]
+                            .iter()
+                            .map(|patch| patch.is_changeset())
+                            .collect();
+
+                        let mut [<#singular _patches>] = vec![];
+                        let mut [<load_ #singular _ #key_plural>] = vec![];
+
+                        for (is_changeset, patches) in [<adaptor_ #singular _patches>].into_iter().group_by(|x: &[<#entity_prefix #ty Patch>]| x.is_changeset()).into_iter() {
+                            if is_changeset {
+                                [<#singular _patches>] = patches.into_iter().collect();
+                            } else {
+                                [<load_ #singular _ #key_plural>] = patches.into_iter().map(|x| x.uuid).collect();
+                            }
+                        }
+
+                        let mut [<updated_adaptor_ #plural>] = update! { #ty, #namespace, [<#singular _patches>], client };
+                        let mut [<loaded_adaptor_ #plural>]: Vec<<Self as [<#ty BaseRepository>]>::Record> = load! {
+                            One,
+                            [<#entity_prefix #ty>],
+                            [<load_ #singular _ #key_plural>],
+                            #key_ty,
+                            client,
+                            #namespace,
+                            #key_singular,
+                        };
+
+                        let mut [<adaptor_ #plural>]: Vec<<Self as [<#ty BaseRepository>]>::Record> = Vec::with_capacity([<updated_adaptor_ #plural>].len() + [<loaded_adaptor_ #plural>].len());
+                        for is_changeset in is_changesets.into_iter() {
+                            if is_changeset {
+                                [<adaptor_ #plural>].push([<updated_adaptor_ #plural>].pop().unwrap());
+                            } else {
+                                [<adaptor_ #plural>].push([<loaded_adaptor_ #plural>].pop().unwrap());
+                            }
+                        }
 
                         Ok([<adaptor_ #plural>])
                     }
