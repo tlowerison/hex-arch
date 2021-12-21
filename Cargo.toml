@@ -1,6 +1,6 @@
 [package]
 name = "hex_arch"
-version = "0.3.15"
+version = "0.3.16"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
