@@ -1,6 +1,6 @@
 [package]
 name = "hex_arch_cache_proc_macros"
-version = "0.1.0"
+version = "0.3.18"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 

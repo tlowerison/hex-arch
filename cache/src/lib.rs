@@ -1,3 +1,4 @@
+pub use owning_ref as hex_arch_cache_owning_ref;
 pub use proc_macros::*;
 
 use uuid::Uuid;

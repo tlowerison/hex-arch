@@ -151,7 +151,7 @@ impl CacheInput {
         let key = &self.key.ty;
         let value = &self.value;
 
-        quote! { [<#namespace Cache>]<'a, #key, #value, [<#namespace Cache #plural>]> }
+        quote! { [<#namespace Cache>]<#key, #value, [<#namespace Cache #plural>]> }
     }
 }
 
@@ -196,12 +196,12 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
 
     let tokens = quote! {
         hex_arch_paste! {
-            pub struct [<#namespace Cache>]<'a, Key, Value, LV> {
+            pub struct [<#namespace Cache>]<Key, Value, LV> {
                 name: [String; 1],
                 uuid: String,
-                values: std::collections::HashMap<Key, std::sync::Arc<Value>>,
+                values: std::collections::HashMap<Key, Value>,
                 visited: bool,
-                visitables: Vec<std::sync::Weak<std::sync::RwLock<dyn Visitable + 'a>>>,
+                visitables: Vec<std::sync::Weak<std::sync::RwLock<dyn Visitable + 'static>>>,
                 _lv: std::marker::PhantomData<LV>,
             }
 
@@ -212,7 +212,7 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                 fn accessor(value: &Self::Value) -> Self::Key;
             }
 
-            impl<'a, Key: Send + Sync, Value: Send + Sync, LV: Send + Sync> [<#namespace Cache>]<'a, Key, Value, LV> {
+            impl<Key: Send + Sync, Value: Send + Sync, LV: Send + Sync> [<#namespace Cache>]<Key, Value, LV> {
                 pub fn new(name: &str) -> Self {
                     [<#namespace Cache>] {
                         name: [format!("cache:{}", name)],
@@ -224,7 +224,7 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                     }
                 }
 
-                pub fn set_visitables(&mut self, visitables: Vec<std::sync::Weak<std::sync::RwLock<dyn Visitable + 'a>>>) {
+                pub fn set_visitables(&mut self, visitables: Vec<std::sync::Weak<std::sync::RwLock<dyn Visitable + 'static>>>) {
                     self.visitables = visitables;
                 }
 
@@ -244,7 +244,7 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                 }
             }
 
-            impl<'a, Key, Value, LV> [<#namespace Cache>]<'a, Key, Value, LV> {
+            impl<Key, Value, LV> [<#namespace Cache>]<Key, Value, LV> {
                 pub fn use_uuid<KeyValueClient>(&self, key_value_client: &mut KeyValueClient) -> Result<(), CacheError>
                 where
                     KeyValueClient: #key_value_client_trait_bound,
@@ -261,29 +261,27 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
             }
 
             impl<
-                'a,
                 Key: Clone + Eq + std::hash::Hash + Send + Sync,
                 Value: Send + Sync,
                 LV: [<#namespace LoadValues>]<Key = Key, Value = Value> + Send + Sync,
-            > [<#namespace Cache>]<'a, Key, Value, LV> {
-
+            > [<#namespace Cache>]<Key, Value, LV> {
                 pub fn get<Q: ?Sized, Adaptor: #adaptor_trait_bound, KeyValueClient: #key_value_client_trait_bound>(
                     &mut self,
                     key: &Q,
                     (client, key_value_client): (<Adaptor as BaseRepository>::Client<'_>, &mut KeyValueClient),
-                ) -> Option<std::sync::Arc<Value>>
+                ) -> Option<&'_ Value>
                 where
                     Key: std::borrow::Borrow<Q>,
                     Q: std::hash::Hash + Eq,
                 {
                     self.update::<Adaptor, KeyValueClient>((client, key_value_client)).ok()?;
-                    self.values.get(key).map(|value| value.clone())
+                    self.values.get(key)
                 }
 
                 pub fn iter<Adaptor: #adaptor_trait_bound, KeyValueClient: #key_value_client_trait_bound>(
                     &mut self,
                     (client, key_value_client): (<Adaptor as BaseRepository>::Client<'_>, &mut KeyValueClient),
-                ) -> Result<std::collections::hash_map::Values<'_, Key, std::sync::Arc<Value>>, CacheError> {
+                ) -> Result<std::collections::hash_map::Values<'_, Key, Value>, CacheError> {
                     self.update::<Adaptor, KeyValueClient>((client, key_value_client))?;
                     Ok(self.values.values())
                 }
@@ -291,7 +289,7 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                 pub fn into_iter<Adaptor: #adaptor_trait_bound, KeyValueClient: #key_value_client_trait_bound>(
                     mut self,
                     (client, key_value_client): (<Adaptor as BaseRepository>::Client<'_>, &mut KeyValueClient),
-                ) -> Result<std::collections::hash_map::IntoValues<Key, std::sync::Arc<Value>>, CacheError> {
+                ) -> Result<std::collections::hash_map::IntoValues<Key, Value>, CacheError> {
                     self.update::<Adaptor, KeyValueClient>((client, key_value_client))?;
                     Ok(self.values.into_values())
                 }
@@ -320,7 +318,7 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                     self.values = LV::load_values::<Adaptor>(client)
                         .ok_or(CacheError::CouldNotLoadResources)?
                         .into_iter()
-                        .map(|value| (LV::accessor(&value), std::sync::Arc::new(value)))
+                        .map(|value| (LV::accessor(&value), value))
                         .collect();
                     Ok(())
                 }
@@ -334,7 +332,7 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                 fn reload(&mut self);
             }
 
-            impl<'a, Key: Send + Sync, Value: Send + Sync, LV: Send + Sync> Visitable for [<#namespace Cache>]<'a, Key, Value, LV> {
+            impl<Key: Send + Sync, Value: Send + Sync, LV: Send + Sync> Visitable for [<#namespace Cache>]<Key, Value, LV> {
                 fn visited(&self) -> bool {
                     self.visited
                 }
@@ -365,7 +363,7 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
             }
 
 
-            pub struct [<#namespace Caches>]<'a> {
+            pub struct [<#namespace Caches>] {
                 #(
                     #plurals: std::sync::Arc<std::sync::RwLock<#tys>>,
                 )*
@@ -389,8 +387,8 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                 }
             )*
 
-            impl<'a> [<#namespace Caches>]<'a> {
-                pub fn new() -> [<#namespace Caches>]<'a> {
+            impl [<#namespace Caches>] {
+                pub fn new() -> [<#namespace Caches>] {
                     #(
                         let #plurals = std::sync::Arc::new(std::sync::RwLock::new([<#namespace Cache>]::new(stringify!(#plurals))));
                     )*
@@ -402,6 +400,21 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                     })*
                     [<#namespace Caches>] {
                         #(#plurals,)*
+                    }
+                }
+
+                pub fn with<'a, 'b, 'c, Adaptor: #adaptor_trait_bound, KeyValueClient: #key_value_client_trait_bound>(
+                    &'a mut self,
+                    (client, key_value_client): (<Adaptor as BaseRepository>::Client<'b>, &'c mut KeyValueClient),
+                ) -> WithCachesBuilder<'a, 'b, 'c, Adaptor, KeyValueClient> {
+                    WithCachesBuilder {
+                        caches: self,
+                        client,
+                        key_value_client,
+                        cache_error: None,
+                        #(
+                            [<with_ #plurals>]: false,
+                        )*
                     }
                 }
 
@@ -437,6 +450,75 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
                         }
                     })*
                     Ok(())
+                }
+            }
+
+            #[derive(Default)]
+            pub struct WithCaches<'a, 'b> {
+                #(
+                    #plurals: Option<hex_arch_cache_owning_ref::OwningHandle<
+                        hex_arch_cache_owning_ref::RwLockReadGuardRef<'a, #tys>,
+                        &'b std::collections::HashMap<#keys, #values>
+                    >>,
+                )*
+            }
+
+            pub struct WithCachesBuilder<'a, 'b, 'c, Adaptor: #adaptor_trait_bound, KeyValueClient: #key_value_client_trait_bound> {
+                caches: &'a mut [<#namespace Caches>],
+                client: <Adaptor as BaseRepository>::Client<'b>,
+                key_value_client: &'c mut KeyValueClient,
+                cache_error: Option<CacheError>,
+                #(
+                    [<with_ #plurals>]: bool,
+                )*
+            }
+
+            impl<'a, 'b> WithCaches<'a, 'b> {
+                #(
+                    pub fn #plurals(&self) -> &hex_arch_cache_owning_ref::OwningHandle<
+                        hex_arch_cache_owning_ref::RwLockReadGuardRef<'a, #tys>,
+                        &'b std::collections::HashMap<#keys, #values>
+                    > {
+                        if let Some(#plurals) = self.#plurals.as_ref() {
+                            #plurals
+                        } else {
+                            panic!("must specify use of cache `{}` in order to use inside of run function", stringify!(#plurals));
+                        }
+                    }
+                )*
+            }
+
+            impl<'a, 'b, 'c, Adaptor: #adaptor_trait_bound, KeyValueClient: #key_value_client_trait_bound> WithCachesBuilder<'a, 'b, 'c, Adaptor, KeyValueClient> {
+                #(
+                    pub fn #plurals(mut self) -> Self {
+                        if let None = self.cache_error {
+                            self.[<with_ #plurals>] = true;
+                            let mut #plurals = self.caches.#plurals().write().unwrap();
+                            self.cache_error = #plurals.update::<Adaptor, KeyValueClient>((self.client, self.key_value_client)).err();
+                        }
+                        self
+                    }
+                )*
+
+                pub fn run<T>(mut self, f: impl FnOnce(WithCaches<'_, '_>) -> T) -> Result<T, CacheError> {
+                    use hex_arch_cache_owning_ref::{OwningHandle, RwLockReadGuardRef};
+                    if let Some(err) = self.cache_error {
+                        return Err(err);
+                    }
+
+                    let mut with_caches = WithCaches::default();
+                    #(
+                        if self.[<with_ #plurals>] {
+                            with_caches.#plurals = Some(
+                                OwningHandle::new_with_fn(
+                                    RwLockReadGuardRef::new(self.caches.#plurals.read().unwrap()),
+                                    |#plurals| & unsafe { #plurals.as_ref() }.unwrap().values,
+                                )
+                            );
+                        }
+                    )*
+
+                    Ok(f(with_caches))
                 }
             }
         }

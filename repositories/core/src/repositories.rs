@@ -983,7 +983,12 @@ pub mod read_repositories {
                     let (adaptor_records, parent_keys) = hex_arch_transpose_2(adaptor_records_and_parent_keys);
 
                     let (records, [<#plural _ptrs>]) = self.[<store_ #plural>](adaptor_records);
-                    let #plural: Vec<_> = [<#plural _ptrs>].iter().map(|[<#plural _ptr>]| [<#plural _ptr>].deref()).collect();
+
+                    let #plural: Vec<_> = [<#plural _ptrs>]
+                        .iter()
+                        .map(|[<#plural _ptr>]| [<#plural _ptr>].deref())
+                        .unique_by(|x| x.as_ref().clone())
+                        .collect();
 
                     let records_and_parent_keys: Vec<_> = hex_arch_izip!(records.into_iter(), parent_keys.into_iter()).collect();
 
@@ -1040,7 +1045,12 @@ pub mod read_repositories {
                     let (adaptor_records, parent_keys) = hex_arch_transpose_2(adaptor_records_and_parent_keys);
 
                     let (records, [<#plural _ptrs>]) = self.[<store_ #plural>](adaptor_records);
-                    let #plural: Vec<_> = [<#plural _ptrs>].iter().map(|ptr| ptr.deref()).collect();
+
+                    let #plural: Vec<_> = [<#plural _ptrs>]
+                        .iter()
+                        .map(|[<#plural _ptr>]| [<#plural _ptr>].deref())
+                        .unique_by(|x| x.as_ref().clone())
+                        .collect();
 
                     let records_and_parent_keys: Vec<_> = hex_arch_izip!(records.into_iter(), parent_keys.into_iter()).collect();
 

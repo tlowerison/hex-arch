@@ -526,12 +526,12 @@ pub fn read_repository_impl(
             let fn_def = load_keys_by_multiple(repository_input, relation_repository, &quote! {
                 hex_arch_paste! {
                     Ok(load_keys_by! {
-                        #key_singular,
                         #key_ty,
                         [<#relation_singular _ #relation_key_plural>],
                         client,
                         #namespace,
                         #relation_namespace,
+                        #key_singular,
                         #relation_key_singular,
                     })
                 }
