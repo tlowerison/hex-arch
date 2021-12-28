@@ -620,6 +620,7 @@ pub mod read_repositories {
                                 value: record,
                                 relations: loaded_relations,
                             }));
+                            option_index += 1;
                         }
 
                         Ok(entity_options)
@@ -973,6 +974,7 @@ pub mod read_repositories {
                             value: record,
                             relations: loaded_relations,
                         }));
+                        option_index += 1;
                     }
 
                     Ok(entity_options)
@@ -1204,12 +1206,12 @@ pub mod read_repositories {
             }
         }
 
-        pub fn load_keys_by_multiple(repository: &RepositoryInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
+        pub fn load_keys_by_multiple(repository: &RepositoryInput, relation: &RelationInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
             let ty = repository.ty();
             let relation_ty = relation_repository.ty();
             let relation_key_plural = relation_repository.key_plural();
             let relation_singular = relation_repository.singular();
-            let fn_name = op_keys_by_multiple_fn_name("load", repository, relation_repository);
+            let fn_name = op_keys_by_multiple_fn_name("load", repository, relation, relation_repository);
             quote! {
                 hex_arch_paste! {
                     pub (crate) fn #fn_name(
@@ -1281,7 +1283,7 @@ pub mod read_repositories {
                     pub struct [<Get #ty Builder>]<Adaptor: #read_repositories> {
                         adaptor: Adaptor,
                         load_adaptor_record: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<<Adaptor as [<#ty BaseRepository>]>::Record, <Adaptor as BaseRepository>::Error>>,
-                        load_relations: [<Load #ty Relations>],
+                        pub load_relations: [<Load #ty Relations>],
                     }
 
                     impl<Adaptor: #read_repositories> [<Get #ty Builder>]<Adaptor> {
@@ -1416,7 +1418,7 @@ pub mod read_repositories {
                                         pub struct [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor: #read_repositories> {
                                             adaptor: Adaptor,
                                             load_adaptor_records_and_parent_keys: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<(<Adaptor as [<#ty BaseRepository>]>::Record, <Adaptor as [<#relation_ty BaseRepository>]>::Key)>, <Adaptor as BaseRepository>::Error>>,
-                                            load_relations: [<Load #ty Relations>],
+                                            pub load_relations: [<Load #ty Relations>],
                                         }
 
                                         impl<Adaptor: #read_repositories> [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor> {
@@ -1484,7 +1486,7 @@ pub mod read_repositories {
                         adaptor: Adaptor,
                         num_requested_records: isize,
                         load_adaptor_records: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<<Adaptor as [<#ty BaseRepository>]>::Record>, <Adaptor as BaseRepository>::Error>>,
-                        load_relations: [<Load #ty Relations>],
+                        pub load_relations: [<Load #ty Relations>],
                     }
 
                     impl<Adaptor: #read_repositories> [<Get #ty sBuilder>]<Adaptor> {
@@ -1639,7 +1641,7 @@ pub mod read_repositories {
                     pub struct [<TryGet #ty Builder>]<Adaptor: #read_repositories> {
                         adaptor: Adaptor,
                         try_load_adaptor_record: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<Option<<Adaptor as [<#ty BaseRepository>]>::Record>, <Adaptor as BaseRepository>::Error>>,
-                        load_relations: [<Load #ty Relations>],
+                        pub load_relations: [<Load #ty Relations>],
                     }
 
                     impl<Adaptor: #read_repositories> [<TryGet #ty Builder>]<Adaptor> {
@@ -1754,7 +1756,7 @@ pub mod read_repositories {
                         adaptor: Adaptor,
                         num_requested_records: isize,
                         try_load_adaptor_records: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<Option<<Adaptor as [<#ty BaseRepository>]>::Record>>, <Adaptor as BaseRepository>::Error>>,
-                        load_relations: [<Load #ty Relations>],
+                        pub load_relations: [<Load #ty Relations>],
                     }
 
                     impl<Adaptor: #read_repositories> [<TryGet #ty sBuilder>]<Adaptor> {
@@ -1912,9 +1914,9 @@ pub mod write_repositories {
                     }
 
                     impl #ty {
-                        pub fn delete<Adaptor: [<#ty WriteRepository>]>(key: <Adaptor as [<#ty BaseRepository>]>::Key) -> [<Delete #ty Builder>]<Adaptor> {
+                        pub fn delete<Adaptor: [<#ty WriteRepository>]>(key: impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<Delete #ty Builder>]<Adaptor> {
                             [<Delete #ty Builder>] {
-                                key,
+                                key: key.into(),
                             }
                         }
                     }
@@ -1940,9 +1942,9 @@ pub mod write_repositories {
                     }
 
                     impl #ty {
-                        pub fn delete_batch<Adaptor: [<#ty WriteRepository>]>(keys: Vec<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<Delete #ty sBuilder>]<Adaptor> {
+                        pub fn delete_batch<Adaptor: [<#ty WriteRepository>]>(keys: Vec<impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>) -> [<Delete #ty sBuilder>]<Adaptor> {
                             [<Delete #ty sBuilder>] {
-                                keys,
+                                keys: keys.into_iter().map(|key| key.into()).collect(),
                             }
                         }
                     }
@@ -1964,7 +1966,7 @@ pub mod write_repositories {
                     pub struct [<Insert #ty Builder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
                         adaptor: Adaptor,
                         post: [<#ty Post>],
-                        load_relations: [<Load #ty Relations>],
+                        pub load_relations: [<Load #ty Relations>],
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Insert #ty Builder>]<Adaptor> {
@@ -2016,7 +2018,7 @@ pub mod write_repositories {
                     pub struct [<Insert #ty sBuilder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
                         adaptor: Adaptor,
                         posts: Vec<[<#ty Post>]>,
-                        load_relations: [<Load #ty Relations>],
+                        pub load_relations: [<Load #ty Relations>],
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Insert #ty sBuilder>]<Adaptor> {
@@ -2069,7 +2071,7 @@ pub mod write_repositories {
                     pub struct [<Update #ty Builder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
                         adaptor: Adaptor,
                         patch: [<#ty Patch>],
-                        load_relations: [<Load #ty Relations>],
+                        pub load_relations: [<Load #ty Relations>],
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Update #ty Builder>]<Adaptor> {
@@ -2121,7 +2123,7 @@ pub mod write_repositories {
                     pub struct [<Update #ty sBuilder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
                         adaptor: Adaptor,
                         patches: Vec<[<#ty Patch>]>,
-                        load_relations: [<Load #ty Relations>],
+                        pub load_relations: [<Load #ty Relations>],
                     }
 
                     impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Update #ty sBuilder>]<Adaptor> {
@@ -2190,9 +2192,9 @@ pub mod shared {
         ) == "load_avenues_by_city"
     */
     pub fn op_by_single_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
-        let relation_ty_singular = relation_repository.singular(); // road | city
         let relation_plural = relation.plural(); // cities | avenues
-        format_ident!("{}_{}_{}_by_{}", op, relation_ty_singular, relation_plural, relation_ty_singular)
+        let relation_ty_singular = relation_repository.singular(); // road | city
+        format_ident!("{}_{}_by_{}", op, relation_plural, relation_ty_singular)
     }
 
     /*
@@ -2223,12 +2225,12 @@ pub mod shared {
         format_ident!("{}_{}_by_{}_{}", op, relation_plural, relation_ty_singular, relation_ty_key_plural)
     }
 
-    pub fn op_keys_by_multiple_fn_name(op: &str, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> Ident {
-        let relation_singular = repository.singular();
+    pub fn op_keys_by_multiple_fn_name(op: &str, repository: &RepositoryInput, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
+        let relation_snake = relation.snake();
         let key_plural = repository.key_plural();
         let relation_ty_singular = relation_repository.singular();
-        let relation_key_plural = relation_repository.key_plural();
-        format_ident!("{}_{}_{}_by_{}_{}", op, relation_singular, key_plural, relation_ty_singular, relation_key_plural)
+        let relation_ty_key_plural = relation_repository.key_plural();
+        format_ident!("{}_{}_{}_by_{}_{}", op, relation_snake, key_plural, relation_ty_singular, relation_ty_key_plural)
     }
 
     pub fn load_in_single(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {

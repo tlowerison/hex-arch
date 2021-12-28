@@ -515,15 +515,15 @@ pub fn read_repository_impl(
 
     let mut load_keys_by: HashMap<Ident, TokenStream2> = inward_relations
         .iter()
-        .map(|(_, relation_repository)| {
+        .map(|(relation, relation_repository)| {
             let relation_ty = relation_repository.ty();
             let relation_singular = relation_repository.singular();
             let relation_namespace = namespaces.get(relation_ty).unwrap();
             let relation_key_singular = relation_repository.key_singular();
             let relation_key_plural = relation_repository.key_plural();
 
-            let fn_name = op_keys_by_multiple_fn_name("load", repository_input, relation_repository);
-            let fn_def = load_keys_by_multiple(repository_input, relation_repository, &quote! {
+            let fn_name = op_keys_by_multiple_fn_name("load", repository_input, relation, relation_repository);
+            let fn_def = load_keys_by_multiple(repository_input, relation, relation_repository, &quote! {
                 hex_arch_paste! {
                     Ok(load_keys_by! {
                         #key_ty,
@@ -744,21 +744,10 @@ pub fn read_repository_impl(
         .map(|inward_relation| (op_by_multiple_keys_fn_name("load", inward_relation.0, inward_relation.1), inward_relation.clone()))
         .collect();
 
-    let mut inward_relations_by_load_keys_by_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
+    let inward_relations_by_load_keys_by_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
         .iter()
-        .map(|inward_relation| (op_keys_by_multiple_fn_name("load", repository_input, inward_relation.1), inward_relation.clone()))
+        .map(|inward_relation| (op_keys_by_multiple_fn_name("load", repository_input, inward_relation.0, inward_relation.1), inward_relation.clone()))
         .collect();
-
-    let reflective_load_key_by_fn_name = op_keys_by_multiple_fn_name("load", repository_input, repository_input);
-    let mut has_reflective_relation = false;
-    for inward_relation in inward_relations.iter() {
-        if *inward_relation.1.ty() == *ty {
-            load_keys_by.remove(&reflective_load_key_by_fn_name);
-            inward_relations_by_load_keys_by_fn_names.remove(&reflective_load_key_by_fn_name);
-            has_reflective_relation = true;
-            break;
-        }
-    };
 
     if let Some(adaptor_entity_input) = adaptor_entity_input_opt {
         if let Some(plural) = adaptor_entity_input.load.plural.as_ref() {
@@ -815,21 +804,12 @@ pub fn read_repository_impl(
                 let inward_relation = inward_relations_by_load_keys_by_fn_names.get(load_keys_by_fn_name).unwrap();
                 load_keys_by.insert(
                     load_keys_by_fn_name.clone(),
-                    load_keys_by_multiple(repository_input, inward_relation.1, body),
+                    load_keys_by_multiple(repository_input, inward_relation.0, inward_relation.1, body),
                 );
             } else {
                 return (syn::Error::new_spanned(load_keys_by_fn_name, &invalid_load_keys_by_keys_fn_name_message).into_compile_error(), vec![]);
             }
         }
-    }
-
-    if has_reflective_relation {
-        load_keys_by.insert(reflective_load_key_by_fn_name, load_keys_by_multiple(repository_input, repository_input, &quote! {
-            hex_arch_paste! {
-                { client; }
-                Ok([<#singular _ #key_plural>])
-            }
-        }));
     }
 
     let load_by_multiples: Vec<_> = load_by_multiples.into_values().collect();
@@ -1058,7 +1038,7 @@ pub fn write_repository_impl(
 
                         let [<full_ #singular _posts>]: Vec<#full_ty> = [<#singular _posts>].into_iter().map(|post| post.into()).collect();
 
-                        let (mut [<adaptor_ #singular _posts>], all_child_posts) = transpose(
+                        let (mut [<adaptor_ #singular _posts>], all_child_posts) = data_sources_transpose_2(
                             [<full_ #singular _posts>]
                                 .into_iter()
                                 .map(|full_post| ( full_post.#base, ( #(full_post.#child_snakes ,)* #(full_post.#reverse_linked_child_snakes ,)* ) ))
@@ -1226,7 +1206,7 @@ pub fn write_repository_impl(
 
                         let [<full_ #singular _patches>]: Vec<#full_ty> = [<#singular _patches>].into_iter().map(|patch| patch.into()).collect();
 
-                        let ([<adaptor_ #singular _patches>], all_child_payloads) = transpose(
+                        let ([<adaptor_ #singular _patches>], all_child_payloads) = data_sources_transpose_2(
                             [<full_ #singular _patches>]
                                 .into_iter()
                                 .map(|full_post| ( full_post.#base, ( #(full_post.#child_snakes),* ) ))
@@ -1346,17 +1326,17 @@ fn get_delete_body(
     let key_singular = repository_input.key_singular();
     let key_plural = repository_input.key_plural();
 
-    let (child_singulars, child_plurals, child_key_plurals, reverse_linked_child_singulars, reverse_linked_child_plurals, reverse_linked_child_key_plurals) = match adaptor_entity_input_opt.as_ref() {
+    let (child_snakes, child_plurals, child_key_plurals, reverse_linked_child_snakes, reverse_linked_child_plurals, reverse_linked_child_key_plurals) = match adaptor_entity_input_opt.as_ref() {
         None => (vec![], vec![], vec![], vec![], vec![], vec![]),
         Some(adaptor_entity_input) => {
-            let ChildrenUtils { child_singulars, child_plurals, child_key_plurals, .. } = children_utils(&adaptor_entity_input.children, repositories_and_adaptor_entity_inputs, "placeholder");
+            let ChildrenUtils { child_snakes, child_plurals, child_key_plurals, .. } = children_utils(&adaptor_entity_input.children, repositories_and_adaptor_entity_inputs, "placeholder");
             let ChildrenUtils {
-                child_singulars: reverse_linked_child_singulars,
+                child_snakes: reverse_linked_child_snakes,
                 child_plurals: reverse_linked_child_plurals,
                 child_key_plurals: reverse_linked_child_key_plurals,
                 ..
             } = children_utils(&adaptor_entity_input.reverse_linked_children, repositories_and_adaptor_entity_inputs, "placeholder");
-            (child_singulars, child_plurals, child_key_plurals, reverse_linked_child_singulars, reverse_linked_child_plurals, reverse_linked_child_key_plurals)
+            (child_snakes, child_plurals, child_key_plurals, reverse_linked_child_snakes, reverse_linked_child_plurals, reverse_linked_child_key_plurals)
         },
     };
 
@@ -1368,7 +1348,7 @@ fn get_delete_body(
 
             #(
                 let [<num_deleted_ #child_plurals>] = Self::[<delete_ #child_plurals>](
-                    Self::[<load_ #child_singulars _ #child_key_plurals _by_ #singular _ #key_plural>]([<#singular _ #key_plural>].clone(), client)?,
+                    Self::[<load_ #child_snakes _ #child_key_plurals _by_ #singular _ #key_plural>]([<#singular _ #key_plural>].clone(), client)?,
                     client,
                 )?;
             )*
@@ -1377,7 +1357,7 @@ fn get_delete_body(
 
             #(
                 let [<num_deleted_ #reverse_linked_child_plurals>] = Self::[<delete_ #reverse_linked_child_plurals>](
-                    Self::[<load_ #reverse_linked_child_singulars _ #reverse_linked_child_key_plurals _by_ #singular _ #key_plural>]([<#singular _ #key_plural>].clone(), client)?,
+                    Self::[<load_ #reverse_linked_child_snakes _ #reverse_linked_child_key_plurals _by_ #singular _ #key_plural>]([<#singular _ #key_plural>].clone(), client)?,
                     client,
                 )?;
             )*
