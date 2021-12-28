@@ -1165,7 +1165,7 @@ pub mod read_repositories {
                             }
                         }
 
-                        pub fn [<get_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_plural: Vec<#load_by_ty>) -> [<Get #ty sBuilder>]<Adaptor> {
+                        pub fn [<get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_plural: Vec<#load_by_ty>) -> [<Get #ty sBuilder>]<Adaptor> {
                             [<Get #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
                                 num_requested_records: #load_by_plural.len() as isize,
@@ -1190,7 +1190,7 @@ pub mod read_repositories {
                             }
                         }
 
-                        pub fn [<get_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_plural: Vec<#load_by_ty>) -> [<Get #ty sBuilder>]<Adaptor> {
+                        pub fn [<get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_plural: Vec<#load_by_ty>) -> [<Get #ty sBuilder>]<Adaptor> {
                             [<Get #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
                                 num_requested_records: -1,
