@@ -243,7 +243,7 @@ pub mod read_repositories {
             let load_by_field_multiples: Vec<_> = repository
                 .load_bys
                 .iter()
-                .map(|load_by| load_by_field_multiple(repository, load_by, &body))
+                .map(|load_by| load_by_field_multiple(repository, load_by, &body, &body))
                 .collect();
 
             let todo_fns = quote! {
@@ -1111,13 +1111,14 @@ pub mod read_repositories {
             format_ident!("load_{}_by_{}", repository.plural(), load_by.plural())
         }
 
-        pub fn load_by_field_multiple(repository: &RepositoryInput, load_by: &LoadByInput, body: &TokenStream2) -> TokenStream2 {
+        pub fn load_by_field_multiple(repository: &RepositoryInput, load_by: &LoadByInput, body: &TokenStream2, try_body: &TokenStream2) -> TokenStream2 {
             let ty = repository.ty();
 
             let load_by_ty = load_by.ty();
             let load_by_plural = load_by.plural();
 
             let load_by_field_multiple_fn_name = get_load_by_field_multiple_fn_name(repository, load_by);
+            let try_load_by_field_multiple_fn_name = format_ident!("try_{}", load_by_field_multiple_fn_name);
 
             let return_ty = match load_by.cardinality {
                 Cardinality::One|Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
@@ -1128,6 +1129,15 @@ pub mod read_repositories {
                 } } },
             };
 
+            let try_return_ty = match load_by.cardinality {
+                Cardinality::One|Cardinality::OneOrNone => { quote! { hex_arch_paste! {
+                    Vec<Option<<Self as [<#ty BaseRepository>]>::Record>>
+                } } },
+                Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
+                    Vec<<Self as [<#ty BaseRepository>]>::Record>
+                } } },
+            };
+
             quote! {
                 hex_arch_paste! {
                     fn #load_by_field_multiple_fn_name(
@@ -1135,20 +1145,26 @@ pub mod read_repositories {
                         client: Self::Client<'_>,
                     ) -> Result<#return_ty, Self::Error>
                     #body
+
+                    fn #try_load_by_field_multiple_fn_name(
+                        #load_by_plural: Vec<#load_by_ty>,
+                        client: Self::Client<'_>,
+                    ) -> Result<#try_return_ty, Self::Error>
+                    #try_body
                 }
             }
         }
 
         pub fn get_by_field(repository: &RepositoryInput, load_by: &LoadByInput) -> TokenStream2 {
             let ty = repository.ty();
-            let plural = repository.plural();
             let read_repositories = repository.read_repositories();
 
             let load_by_ty = load_by.ty();
             let load_by_singular = load_by.singular();
             let load_by_plural = load_by.plural();
 
-            let load_by_field_multiple_fn_name = format_ident!("load_{}_by_{}", plural, load_by_plural);
+            let load_by_field_multiple_fn_name = get_load_by_field_multiple_fn_name(repository, load_by);
+            let try_load_by_field_multiple_fn_name = format_ident!("try_{}", load_by_field_multiple_fn_name);
 
             match load_by.cardinality {
                 Cardinality::One => quote! { hex_arch_paste! {
@@ -1171,6 +1187,29 @@ pub mod read_repositories {
                                 num_requested_records: #load_by_plural.len() as isize,
                                 load_adaptor_records: Box::new(move |client| Ok(
                                     Adaptor::#load_by_field_multiple_fn_name(#load_by_plural, client)?
+                                )),
+                                load_relations: [<Load #ty Relations>]::default(),
+                            }
+                        }
+
+                        pub fn [<try_get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_singular: #load_by_ty) -> [<TryGet #ty Builder>]<Adaptor> {
+                            [<TryGet #ty Builder>] {
+                                adaptor: Adaptor::default(),
+                                try_load_adaptor_record: Box::new(move |client| Ok(
+                                    Adaptor::#try_load_by_field_multiple_fn_name(vec![#load_by_singular], client)?
+                                        .pop()
+                                        .ok_or_else(|| <Adaptor as BaseRepository>::Error::not_found())?
+                                )),
+                                load_relations: [<Load #ty Relations>]::default(),
+                            }
+                        }
+
+                        pub fn [<try_get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_plural: Vec<#load_by_ty>) -> [<TryGet #ty sBuilder>]<Adaptor> {
+                            [<TryGet #ty sBuilder>] {
+                                adaptor: Adaptor::default(),
+                                num_requested_records: #load_by_plural.len() as isize,
+                                try_load_adaptor_records: Box::new(move |client| Ok(
+                                    Adaptor::#try_load_by_field_multiple_fn_name(#load_by_plural, client)?
                                 )),
                                 load_relations: [<Load #ty Relations>]::default(),
                             }

@@ -730,7 +730,28 @@ pub fn read_repository_impl(
                         })
                     }
                 }
-            }
+            },
+            {
+                let cardinality = match &cardinality {
+                    Cardinality::One => Cardinality::OneOrNone,
+                    _ => cardinality.clone(),
+                };
+                &quote! {
+                    {
+                        hex_arch_paste! {
+                            Ok(load! {
+                                #cardinality,
+                                [<#entity_prefix #ty>],
+                                #load_by_plural,
+                                #load_by_ty,
+                                client,
+                                #namespace,
+                                #load_by_singular,
+                            })
+                        }
+                    }
+                }
+            },
         ));
     }
 
