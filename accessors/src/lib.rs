@@ -1,9 +1,8 @@
 #[macro_use] extern crate quote;
 extern crate proc_macro;
 
-use common::{transpose_2, transpose_3};
+use itertools::Itertools;
 use proc_macro::TokenStream;
-use syn::{Ident, Type};
 
 #[proc_macro_derive(Getters)]
 pub fn getters(item: TokenStream) -> TokenStream {
@@ -11,7 +10,7 @@ pub fn getters(item: TokenStream) -> TokenStream {
 
     let name = &ast.ident;
 
-    let (getter_fn_names, fields, field_types) = transpose_3::<Ident, Ident, Type>(match &ast.data {
+    let (getter_fn_names, fields, field_types): (Vec<_>, Vec<_>, Vec<_>) = match &ast.data {
         syn::Data::Struct(data_struct) => match &data_struct.fields {
             syn::Fields::Named(fields_named) => fields_named
                 .named
@@ -20,17 +19,17 @@ pub fn getters(item: TokenStream) -> TokenStream {
                     let ident = field.ident.as_ref().unwrap().clone();
                     (ident.clone(), ident, field.ty.clone())
                 })
-                .collect(),
+                .multiunzip(),
             syn::Fields::Unnamed(fields_unnamed) => fields_unnamed
                 .unnamed
                 .iter()
                 .enumerate()
                 .map(|(index, field)| (format_ident!("_{}", index), format_ident!("{}", index), field.ty.clone()))
-                .collect(),
-            syn::Fields::Unit => vec![],
+                .multiunzip(),
+            syn::Fields::Unit => vec![].into_iter().multiunzip(),
         },
         _ => panic!("Getters can only be derived on struct data types"),
-    });
+    };
 
     let gen = quote! {
         impl #name {
@@ -54,13 +53,11 @@ pub fn pub_fn(item: TokenStream) -> TokenStream {
     let gen = match ast.data {
         syn::Data::Struct(data_struct) => match data_struct.fields {
             syn::Fields::Named(fields_named) => {
-                let (field_names, field_types) = transpose_2(
-                    fields_named
-                        .named
-                        .into_iter()
-                        .map(|field| (field.ident.unwrap(), field.ty))
-                        .collect()
-                );
+                let (field_names, field_types): (Vec<_>, Vec<_>) = fields_named
+                    .named
+                    .into_iter()
+                    .map(|field| (field.ident.unwrap(), field.ty))
+                    .unzip();
                 quote! {
                     pub struct #pub_name {
                         #(pub #field_names: #field_types),*

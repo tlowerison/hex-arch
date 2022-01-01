@@ -1,8 +1,10 @@
 [package]
 name = "hex_arch_repositories"
-version = "0.3.21"
+version = "0.3.22"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
 [dependencies]
+indexmap = "1.7.0"
+itertools = "0.10.1"
 proc_macros = { path = "./proc-macros", package = "hex_arch_repositories_proc_macros" }

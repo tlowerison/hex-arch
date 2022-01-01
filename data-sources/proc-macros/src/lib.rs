@@ -63,8 +63,8 @@ fn get_field_names(ast: &DeriveInput, primary_key: &Ident) -> Vec<Ident> {
                     }
                 })
                 .collect(),
-            _ => panic!("FullPatch can only be derived on struct data types with named fields at this time."),
+            _ => panic!("IsChangeset can only be derived on struct data types with named fields at this time."),
         },
-        _ => panic!("FullPatch can only be derived on struct data types at this time."),
+        _ => panic!("IsChangeset can only be derived on struct data types at this time."),
     }
 }

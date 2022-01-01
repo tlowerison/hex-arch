@@ -1,0 +1,18 @@
+[package]
+name = "hex_arch_data_sources_backends_diesel"
+version = "0.3.22"
+authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
+edition = "2021"
+
+[dependencies]
+cfg-if = "1.0.0"
+diesel = "1.4.8"
+hex_arch_data_sources_backends_diesel_audit = { path = "./audit", optional = true }
+repositories = { path = "../../../repositories", package = "hex_arch_repositories" }
+
+[features]
+default = []
+audit = ["hex_arch_data_sources_backends_diesel_audit"]
+mysql = ["diesel/mysql"]
+postgres = ["diesel/postgres"]
+sqlite = ["diesel/sqlite"]

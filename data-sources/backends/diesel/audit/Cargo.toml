@@ -1,0 +1,9 @@
+[package]
+name = "hex_arch_data_sources_backends_diesel_audit"
+version = "0.3.22"
+authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
+edition = "2021"
+
+[dependencies]
+paste = "1.0.5"
+proc_macros = { path = "./proc-macros", package = "hex_arch_data_sources_backends_diesel_audit_proc_macros" }
