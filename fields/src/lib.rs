@@ -8,23 +8,34 @@ macro_rules! maybe_option {
 
 #[macro_export]
 macro_rules! maybe_some {
-    (!, $expr:expr) => { $expr };
-    (?, $expr:expr) => { Some($expr) };
+    (!, $expr:expr) => {
+        $expr
+    };
+    (?, $expr:expr) => {
+        Some($expr)
+    };
 }
 
 #[macro_export]
 macro_rules! maybe_unreachable {
-    (!) => { #[allow(unreachable_code)] unreachable!() };
-    (?) => { None };
+    (!) => {
+        #[allow(unreachable_code)]
+        unreachable!()
+    };
+    (?) => {
+        None
+    };
 }
 
 #[macro_export]
 macro_rules! unwrap_helper_field {
     (!, $ident:ident, $helper_ident:ident, $field_ident:ident) => {
-        $helper_ident.$field_ident.ok_or_else(|| syn::Error::new(
-            $ident.span(),
-            concat!("missing required field `", stringify!($field_ident), "`"),
-        ))?
+        $helper_ident.$field_ident.ok_or_else(|| {
+            syn::Error::new(
+                $ident.span(),
+                concat!("missing required field `", stringify!($field_ident), "`"),
+            )
+        })?
     };
     (?, $ident:ident, $helper_ident:ident, $field_ident:ident) => {
         $helper_ident.$field_ident.unwrap_or(None)

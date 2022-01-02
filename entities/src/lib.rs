@@ -1,4 +1,5 @@
-#[macro_use] extern crate cfg_if;
+#[macro_use]
+extern crate cfg_if;
 
 mod as_enum;
 mod dependent_fields;

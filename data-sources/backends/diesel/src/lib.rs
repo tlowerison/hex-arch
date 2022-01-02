@@ -1,13 +1,10 @@
 #[macro_use]
 extern crate cfg_if;
 
-#[cfg(feature = "audit")] pub use hex_arch_data_sources_backends_diesel_audit::*;
+#[cfg(feature = "audit")]
+pub use hex_arch_data_sources_backends_diesel_audit::*;
 
-use diesel::{
-    self,
-    connection::{Connection as DieselConnection},
-    result::Error as DieselError,
-};
+use diesel::{self, connection::Connection as DieselConnection, result::Error as DieselError};
 use repositories::Transactional;
 
 pub struct TransactionWrapper<'a, Connection>(pub &'a Connection);
@@ -39,7 +36,7 @@ impl<Connection: DieselConnection> Transactional for TransactionWrapper<'_, Conn
     fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce() -> Result<T, E>,
-        E: From<Self::AdaptorError>
+        E: From<Self::AdaptorError>,
     {
         self.0.transaction(f)
     }
@@ -51,7 +48,7 @@ impl<Connection: DieselConnection> Transactional for &TransactionWrapper<'_, Con
     fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce() -> Result<T, E>,
-        E: From<Self::AdaptorError>
+        E: From<Self::AdaptorError>,
     {
         self.0.transaction(f)
     }
@@ -124,16 +121,14 @@ macro_rules! load_all {
     (
         $client:ident,
         $schema:ident$(,)?
-    ) => {
-        {
-            PreSortValues::from(
-                $schema::table
-                    .filter($schema::deleted_at.is_null())
-                    .load($client)
-                    .map_err(<Self as hex_arch::BaseRepository>::Error::from)?
-            )
-        }
-    };
+    ) => {{
+        PreSortValues::from(
+            $schema::table
+                .filter($schema::deleted_at.is_null())
+                .load($client)
+                .map_err(<Self as hex_arch::BaseRepository>::Error::from)?,
+        )
+    }};
 }
 
 #[macro_export]
@@ -183,19 +178,16 @@ macro_rules! load_keys_by {
         $rel_schema:ident,
         $field_name:ident,
         $rel_field_name:ident$(,)?
-    ) => {
-        {
-            $schema::table
-                .select($schema::$field_name)
-                .inner_join($rel_schema::table)
-                .filter($schema::deleted_at.is_null())
-                .filter($rel_schema::deleted_at.is_null())
-                .filter($rel_schema::$rel_field_name.eq_any($rel_field_names.clone()))
-                .load::<$field_ty>($client)?
-        }
-    };
+    ) => {{
+        $schema::table
+            .select($schema::$field_name)
+            .inner_join($rel_schema::table)
+            .filter($schema::deleted_at.is_null())
+            .filter($rel_schema::deleted_at.is_null())
+            .filter($rel_schema::$rel_field_name.eq_any($rel_field_names.clone()))
+            .load::<$field_ty>($client)?
+    }};
 }
-
 
 #[macro_export]
 macro_rules! insert {

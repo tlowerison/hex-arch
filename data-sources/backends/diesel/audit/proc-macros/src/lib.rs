@@ -1,4 +1,5 @@
-#[macro_use] extern crate quote;
+#[macro_use]
+extern crate quote;
 extern crate proc_macro;
 
 use convert_case::{Case, Casing};
@@ -12,7 +13,10 @@ pub fn derive_audit(tokens: TokenStream) -> TokenStream {
     let name = format!("{}", &ast.ident);
     let snake_name = format!("{}", name).to_case(Case::Snake);
     if &snake_name[..3] != "db_" {
-        panic!("Audit tables expect a naming schema of Db{{}}, found {}", name);
+        panic!(
+            "Audit tables expect a naming schema of Db{{}}, found {}",
+            name
+        );
     }
 
     let name = format_ident!("{}", &name[2..]);
@@ -26,7 +30,9 @@ pub fn derive_audit(tokens: TokenStream) -> TokenStream {
                 .iter()
                 .map(|field| (field.ident.as_ref().unwrap().clone(), field.ty.clone()))
                 .unzip(),
-            _ => panic!("Audit can only be derived on struct data types with named fields at this time."),
+            _ => panic!(
+                "Audit can only be derived on struct data types with named fields at this time."
+            ),
         },
         _ => panic!("Audit can only be derived on struct data types at this time."),
     };
@@ -42,7 +48,10 @@ pub fn derive_audit(tokens: TokenStream) -> TokenStream {
     }
 
     let primary_key_index = if primary_key_index < 0 {
-        panic!("Audit could not be derived for primary key `{}`, field not found in `{}`", primary_key_name, name);
+        panic!(
+            "Audit could not be derived for primary key `{}`, field not found in `{}`",
+            primary_key_name, name
+        );
     } else {
         primary_key_index as usize
     };
@@ -54,7 +63,10 @@ pub fn derive_audit(tokens: TokenStream) -> TokenStream {
     into_field_names.remove(primary_key_index);
     into_field_types.remove(primary_key_index);
 
-    field_names.insert(primary_key_index + 1, format_ident!("{}_{}", table_name, primary_key_name));
+    field_names.insert(
+        primary_key_index + 1,
+        format_ident!("{}_{}", table_name, primary_key_name),
+    );
     field_types.insert(primary_key_index + 1, primary_key_type.clone());
 
     let tokens = quote! {
@@ -136,7 +148,7 @@ fn get_primary_key(ast: &DeriveInput) -> Ident {
         .find(|attr| {
             if let Some(attr_ident) = attr.path.get_ident() {
                 if &*format!("{}", attr_ident) == "primary_key" {
-                    return true
+                    return true;
                 }
             }
             false

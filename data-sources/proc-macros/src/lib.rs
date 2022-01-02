@@ -1,14 +1,15 @@
 #![feature(proc_macro_span)]
 
-#[macro_use] extern crate quote;
+#[macro_use]
+extern crate quote;
 extern crate proc_macro;
 
 use data_sources_core::AdaptorInput;
 use proc_macro::{Span, TokenStream};
-use syn::{DeriveInput, Ident, parse_macro_input};
+use syn::{parse_macro_input, DeriveInput, Ident};
 
 #[proc_macro]
-pub fn adaptor(item: TokenStream) -> TokenStream  {
+pub fn adaptor(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as AdaptorInput);
     data_sources_core::adaptor(input, Span::call_site().source_file().path()).into()
 }
@@ -39,7 +40,7 @@ fn get_primary_key(ast: &DeriveInput) -> Ident {
         .find(|attr| {
             if let Some(attr_ident) = attr.path.get_ident() {
                 if &*format!("{}", attr_ident) == "primary_key" {
-                    return true
+                    return true;
                 }
             }
             false

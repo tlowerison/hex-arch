@@ -1,12 +1,12 @@
 [package]
 name = "hex_arch_data_sources_backends_diesel_audit_proc_macros"
-version = "0.3.22"
+version = "0.3.23"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
 [dependencies]
 convert_case = "0.4.0"
-itertools = "0.10.1"
+itertools = "0.10.3"
 proc-macro2 = "1.0.29"
 quote = "1.0.10"
 syn = { version = "1.0.80", features = ["parsing"] }

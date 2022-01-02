@@ -1,4 +1,5 @@
-#[macro_use] extern crate quote;
+#[macro_use]
+extern crate quote;
 extern crate proc_macro;
 
 use itertools::Itertools;
@@ -24,7 +25,13 @@ pub fn getters(item: TokenStream) -> TokenStream {
                 .unnamed
                 .iter()
                 .enumerate()
-                .map(|(index, field)| (format_ident!("_{}", index), format_ident!("{}", index), field.ty.clone()))
+                .map(|(index, field)| {
+                    (
+                        format_ident!("_{}", index),
+                        format_ident!("{}", index),
+                        field.ty.clone(),
+                    )
+                })
                 .multiunzip(),
             syn::Fields::Unit => vec![].into_iter().multiunzip(),
         },
@@ -71,7 +78,7 @@ pub fn pub_fn(item: TokenStream) -> TokenStream {
                         }
                     }
                 }
-            },
+            }
             syn::Fields::Unnamed(fields_unnamed) => {
                 let field_types: Vec<_> = fields_unnamed
                     .unnamed
@@ -93,7 +100,7 @@ pub fn pub_fn(item: TokenStream) -> TokenStream {
                         }
                     }
                 }
-            },
+            }
             syn::Fields::Unit => quote! {
                 pub struct #pub_name;
             },

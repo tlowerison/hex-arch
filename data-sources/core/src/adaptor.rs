@@ -2,28 +2,21 @@ use crate::get_repositories_input::*;
 use convert_case::{Case, Casing};
 use itertools::Itertools;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{TokenStreamExt, ToTokens};
+use quote::{ToTokens, TokenStreamExt};
 use repositories_core::{
-    *,
     read_repositories::ty_read_repository::{
-        get_load_by_field_multiple_fn_name,
-        load_by_field_multiple,
-        load_by_multiple,
-        load_by_multiple_keys,
-        load_keys_by_multiple,
+        get_load_by_field_multiple_fn_name, load_by_field_multiple, load_by_multiple,
+        load_by_multiple_keys, load_keys_by_multiple,
     },
-    shared::{
-        op_by_multiple_fn_name,
-        op_by_multiple_keys_fn_name,
-        op_keys_by_multiple_fn_name,
-    },
+    shared::{op_by_multiple_fn_name, op_by_multiple_keys_fn_name, op_keys_by_multiple_fn_name},
+    *,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use syn::{braced, Ident, LitStr, Token, parenthesized, Type};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::token::Paren;
+use syn::{braced, parenthesized, Ident, LitStr, Token, Type};
 
 const PLACEHOLDER_KEY: &'static str = "_";
 
@@ -91,7 +84,10 @@ impl TryFrom<Ident> for OrderByOrdering {
         match &*format!("{}", ident).to_lowercase() {
             "asc" => Ok(OrderByOrdering::Asc),
             "desc" => Ok(OrderByOrdering::Desc),
-            _ => Err(syn::Error::new_spanned(ident, "expected one of `asc` or `desc`")),
+            _ => Err(syn::Error::new_spanned(
+                ident,
+                "expected one of `asc` or `desc`",
+            )),
         }
     }
 }
@@ -171,7 +167,8 @@ impl Parse for AdaptorEntityInput {
         Ok(AdaptorEntityInput {
             key: format_ident!(
                 "{}",
-                fields.key
+                fields
+                    .key
                     .map(|key| key.value())
                     .unwrap_or(String::from(PLACEHOLDER_KEY)),
             ),
@@ -230,7 +227,11 @@ impl Parse for ChildInput {
 }
 
 impl ChildInput {
-    fn parse_after_colon(input: ParseStream, snake: Ident, is_in_parens: bool) -> syn::Result<ChildInput> {
+    fn parse_after_colon(
+        input: ParseStream,
+        snake: Ident,
+        is_in_parens: bool,
+    ) -> syn::Result<ChildInput> {
         let ty: Type = input.parse()?;
 
         let mut child_input = ChildInput {
@@ -246,8 +247,15 @@ impl ChildInput {
             let flag: Ident = input.parse()?;
 
             match &*format!("{}", flag) {
-                "reverse_linked" => { child_input.is_reverse_linked = true; },
-                _ => return Err(syn::Error::new_spanned(flag, "unrecognized flag on child entity")),
+                "reverse_linked" => {
+                    child_input.is_reverse_linked = true;
+                }
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        flag,
+                        "unrecognized flag on child entity",
+                    ))
+                }
             }
         }
         if input.peek(Token![,]) {
@@ -322,7 +330,10 @@ impl Parse for LoadFnInput {
         braced!(in_brace in input);
         let block: TokenStream2 = in_brace.parse()?;
 
-        Ok(LoadFnInput { snake_name, block: quote! { { #block } } })
+        Ok(LoadFnInput {
+            snake_name,
+            block: quote! { { #block } },
+        })
     }
 }
 
@@ -332,7 +343,12 @@ impl Parse for AdaptorEntityMutateInput {
             let ident: Ident = input.parse()?;
             Ok(match &*format!("{}", ident) {
                 "full" => AdaptorEntityMutateInput::Full,
-                _ => return Err(syn::Error::new_spanned(ident, "unrecognized identifier in insert block: expected `full`")),
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        ident,
+                        "unrecognized identifier in insert block: expected `full`",
+                    ))
+                }
             })
         } else {
             let in_brace;
@@ -347,8 +363,16 @@ pub fn adaptor(input: AdaptorInput, relative_path_to_source_file: PathBuf) -> To
     let AdaptorInput { path, config } = input;
     let repositories_input = get_repositories_input(&path, relative_path_to_source_file);
 
-    let AdaptorConfigInput { adaptor_name, entity_prefix, client, error, adaptor_entity_inputs, .. } = config;
-    let adaptor_fields: Vec<_> = repositories_input.repositories
+    let AdaptorConfigInput {
+        adaptor_name,
+        entity_prefix,
+        client,
+        error,
+        adaptor_entity_inputs,
+        ..
+    } = config;
+    let adaptor_fields: Vec<_> = repositories_input
+        .repositories
         .iter()
         .map(|repository_input| adaptor_field(repository_input, &entity_prefix))
         .collect();
@@ -358,37 +382,71 @@ pub fn adaptor(input: AdaptorInput, relative_path_to_source_file: PathBuf) -> To
         .map(|adaptor_entity_input| (adaptor_entity_input.ty.clone(), adaptor_entity_input))
         .collect();
 
-    let repositories_and_adaptor_entity_inputs: HashMap<Ident, (RepositoryInput, Option<AdaptorEntityInput>)> = repositories_input
+    let repositories_and_adaptor_entity_inputs: HashMap<
+        Ident,
+        (RepositoryInput, Option<AdaptorEntityInput>),
+    > = repositories_input
         .repositories
         .iter()
         .map(|repository_input| {
             let adaptor_entity_input = adaptor_entity_inputs.remove(repository_input.ty());
-            (repository_input.ty().clone(), ((*repository_input).clone(), adaptor_entity_input))
+            (
+                repository_input.ty().clone(),
+                ((*repository_input).clone(), adaptor_entity_input),
+            )
         })
         .collect();
 
     if adaptor_entity_inputs.len() > 0 {
-        let entity_str = if adaptor_entity_inputs.len() == 1 { "entity" } else { "entities" };
-        let unrecognized_entities: Vec<_> = adaptor_entity_inputs.into_keys().map(|ident| format!("{}", ident)).collect();
+        let entity_str = if adaptor_entity_inputs.len() == 1 {
+            "entity"
+        } else {
+            "entities"
+        };
+        let unrecognized_entities: Vec<_> = adaptor_entity_inputs
+            .into_keys()
+            .map(|ident| format!("{}", ident))
+            .collect();
 
-        panic!("unrecognized {}: {}", entity_str, unrecognized_entities.join(", "));
+        panic!(
+            "unrecognized {}: {}",
+            entity_str,
+            unrecognized_entities.join(", ")
+        );
     }
 
     let namespaces: HashMap<Ident, Ident> = repositories_and_adaptor_entity_inputs
         .iter()
-        .map(|(ty, value)| (ty.clone(), {
-            if let Some(adaptor_entity_input) = value.1.as_ref() {
-                adaptor_entity_input.namespace.as_ref().map(|namespace| namespace.clone()).unwrap_or_else(|| value.0.singular().clone())
-            } else {
-                value.0.singular().clone()
-            }
-        }))
+        .map(|(ty, value)| {
+            (ty.clone(), {
+                if let Some(adaptor_entity_input) = value.1.as_ref() {
+                    adaptor_entity_input
+                        .namespace
+                        .as_ref()
+                        .map(|namespace| namespace.clone())
+                        .unwrap_or_else(|| value.0.singular().clone())
+                } else {
+                    value.0.singular().clone()
+                }
+            })
+        })
         .collect();
 
-    let (repository_impls, all_load_keys_by): (Vec<_>, Vec<_>) = repositories_and_adaptor_entity_inputs
-        .values()
-        .map(|value| repository_impl(&adaptor_name, &entity_prefix, &namespaces, &repositories_input, &value.0, &value.1, &repositories_and_adaptor_entity_inputs))
-        .unzip();
+    let (repository_impls, all_load_keys_by): (Vec<_>, Vec<_>) =
+        repositories_and_adaptor_entity_inputs
+            .values()
+            .map(|value| {
+                repository_impl(
+                    &adaptor_name,
+                    &entity_prefix,
+                    &namespaces,
+                    &repositories_input,
+                    &value.0,
+                    &value.1,
+                    &repositories_and_adaptor_entity_inputs,
+                )
+            })
+            .unzip();
 
     let load_keys_by: Vec<_> = all_load_keys_by
         .into_iter()
@@ -445,16 +503,41 @@ pub fn repository_impl(
     repositories_input: &RepositoriesInput,
     repository_input: &RepositoryInput,
     adaptor_entity_input_opt: &Option<AdaptorEntityInput>,
-    repositories_and_adaptor_entity_inputs: &HashMap<Ident, (RepositoryInput, Option<AdaptorEntityInput>)>,
+    repositories_and_adaptor_entity_inputs: &HashMap<
+        Ident,
+        (RepositoryInput, Option<AdaptorEntityInput>),
+    >,
 ) -> (TokenStream2, Vec<(Ident, TokenStream2)>) {
     let base_repository = base_repository_impl(adaptor_name, entity_prefix, repository_input);
-    let (read_repository, load_keys_by) = read_repository_impl(adaptor_name, entity_prefix, namespaces, repository_input, repositories_input, adaptor_entity_input_opt.as_ref(), repositories_and_adaptor_entity_inputs);
-    let write_repository = write_repository_impl(adaptor_name, entity_prefix, namespaces, repository_input, adaptor_entity_input_opt.as_ref(), repositories_and_adaptor_entity_inputs);
+    let (read_repository, load_keys_by) = read_repository_impl(
+        adaptor_name,
+        entity_prefix,
+        namespaces,
+        repository_input,
+        repositories_input,
+        adaptor_entity_input_opt.as_ref(),
+        repositories_and_adaptor_entity_inputs,
+    );
+    let write_repository = write_repository_impl(
+        adaptor_name,
+        entity_prefix,
+        namespaces,
+        repository_input,
+        adaptor_entity_input_opt.as_ref(),
+        repositories_and_adaptor_entity_inputs,
+    );
 
-    (quote! { #base_repository #read_repository #write_repository }, load_keys_by)
+    (
+        quote! { #base_repository #read_repository #write_repository },
+        load_keys_by,
+    )
 }
 
-pub fn base_repository_impl(adaptor_name: &Ident, entity_prefix: &Ident, repository_input: &RepositoryInput) -> TokenStream2 {
+pub fn base_repository_impl(
+    adaptor_name: &Ident,
+    entity_prefix: &Ident,
+    repository_input: &RepositoryInput,
+) -> TokenStream2 {
     let ty = repository_input.ty();
     let key_ty = repository_input.key_ty();
 
@@ -475,7 +558,10 @@ pub fn read_repository_impl(
     repository_input: &RepositoryInput,
     repositories_input: &RepositoriesInput,
     adaptor_entity_input_opt: Option<&AdaptorEntityInput>,
-    repositories_and_adaptor_entity_inputs: &HashMap<Ident, (RepositoryInput, Option<AdaptorEntityInput>)>,
+    repositories_and_adaptor_entity_inputs: &HashMap<
+        Ident,
+        (RepositoryInput, Option<AdaptorEntityInput>),
+    >,
 ) -> (TokenStream2, Vec<(Ident, TokenStream2)>) {
     let ty = repository_input.ty();
     let singular = repository_input.singular();
@@ -507,20 +593,30 @@ pub fn read_repository_impl(
             let relation_key_singular = relation_repository.key_singular();
             let relation_key_plural = relation_repository.key_plural();
 
-            let fn_name = op_keys_by_multiple_fn_name("load", repository_input, relation, relation_repository);
-            let fn_def = load_keys_by_multiple(repository_input, relation, relation_repository, &quote! {
-                hex_arch_paste! {
-                    Ok(load_keys_by! {
-                        #key_ty,
-                        [<#relation_singular _ #relation_key_plural>],
-                        client,
-                        #namespace,
-                        #relation_namespace,
-                        #key_singular,
-                        #relation_key_singular,
-                    })
-                }
-            });
+            let fn_name = op_keys_by_multiple_fn_name(
+                "load",
+                repository_input,
+                relation,
+                relation_repository,
+            );
+            let fn_def = load_keys_by_multiple(
+                repository_input,
+                relation,
+                relation_repository,
+                &quote! {
+                    hex_arch_paste! {
+                        Ok(load_keys_by! {
+                            #key_ty,
+                            [<#relation_singular _ #relation_key_plural>],
+                            client,
+                            #namespace,
+                            #relation_namespace,
+                            #key_singular,
+                            #relation_key_singular,
+                        })
+                    }
+                },
+            );
             (fn_name, fn_def)
         })
         .collect();
@@ -630,27 +726,36 @@ pub fn read_repository_impl(
                 .unwrap()
                 .1
                 .as_ref()
-                .map(|adaptor_entity_input|
-                    adaptor_entity_input.children
+                .map(|adaptor_entity_input| {
+                    adaptor_entity_input
+                        .children
                         .iter()
                         .find(|child_input| child_input.snake == *relation_snake)
-                        .map(|child_input| (child_input.order_by_field.clone(), child_input.order_by_ordering.clone()))
-                )
+                        .map(|child_input| {
+                            (
+                                child_input.order_by_field.clone(),
+                                child_input.order_by_ordering.clone(),
+                            )
+                        })
+                })
                 .flatten()
                 .unwrap_or((None, None));
 
             let order_by_tokens = match order_by_field {
                 Some(order_by_field) => match order_by_ordering {
                     Some(order_by_ordering) => quote! { #order_by_field, #order_by_ordering, },
-                    None => quote! { #order_by_field, asc, }
+                    None => quote! { #order_by_field, asc, },
                 },
                 None => quote! {},
             };
 
             (
                 op_by_multiple_keys_fn_name("load", relation, relation_repository),
-                load_by_multiple_keys(relation, repository_input, relation_repository, &(
-                    if *relation_ty == *ty {
+                load_by_multiple_keys(
+                    relation,
+                    repository_input,
+                    relation_repository,
+                    &(if *relation_ty == *ty {
                         quote! {
                             {
                                 hex_arch_paste! {
@@ -684,8 +789,8 @@ pub fn read_repository_impl(
                                 }
                             }
                         }
-                    }
-                )),
+                    }),
+                ),
             )
         })
         .collect();
@@ -696,29 +801,11 @@ pub fn read_repository_impl(
         let load_by_plural = load_by.plural();
         let cardinality = &load_by.cardinality;
 
-        load_by_multiples.insert(get_load_by_field_multiple_fn_name(repository_input, load_by), load_by_field_multiple(
-            repository_input,
-            load_by,
-            &quote! {
-                {
-                    hex_arch_paste! {
-                        Ok(load! {
-                            #cardinality,
-                            [<#entity_prefix #ty>],
-                            #load_by_plural,
-                            #load_by_ty,
-                            client,
-                            #namespace,
-                            #load_by_singular,
-                        })
-                    }
-                }
-            },
-            {
-                let cardinality = match &cardinality {
-                    Cardinality::One => Cardinality::OneOrNone,
-                    _ => cardinality.clone(),
-                };
+        load_by_multiples.insert(
+            get_load_by_field_multiple_fn_name(repository_input, load_by),
+            load_by_field_multiple(
+                repository_input,
+                load_by,
                 &quote! {
                     {
                         hex_arch_paste! {
@@ -733,24 +820,72 @@ pub fn read_repository_impl(
                             })
                         }
                     }
-                }
-            },
-        ));
+                },
+                {
+                    let cardinality = match &cardinality {
+                        Cardinality::One => Cardinality::OneOrNone,
+                        _ => cardinality.clone(),
+                    };
+                    &quote! {
+                        {
+                            hex_arch_paste! {
+                                Ok(load! {
+                                    #cardinality,
+                                    [<#entity_prefix #ty>],
+                                    #load_by_plural,
+                                    #load_by_ty,
+                                    client,
+                                    #namespace,
+                                    #load_by_singular,
+                                })
+                            }
+                        }
+                    }
+                },
+            ),
+        );
     }
 
-    let inward_relations_by_load_by_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
+    let inward_relations_by_load_by_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> =
+        inward_relations
+            .iter()
+            .map(|inward_relation| {
+                (
+                    op_by_multiple_fn_name("load", inward_relation.0, inward_relation.1),
+                    inward_relation.clone(),
+                )
+            })
+            .collect();
+
+    let inward_relations_by_load_keys_by_keys_fn_names: HashMap<
+        Ident,
+        (&RelationInput, &RepositoryInput),
+    > = inward_relations
         .iter()
-        .map(|inward_relation| (op_by_multiple_fn_name("load", inward_relation.0, inward_relation.1), inward_relation.clone()))
+        .map(|inward_relation| {
+            (
+                op_by_multiple_keys_fn_name("load", inward_relation.0, inward_relation.1),
+                inward_relation.clone(),
+            )
+        })
         .collect();
 
-    let inward_relations_by_load_keys_by_keys_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
+    let inward_relations_by_load_keys_by_fn_names: HashMap<
+        Ident,
+        (&RelationInput, &RepositoryInput),
+    > = inward_relations
         .iter()
-        .map(|inward_relation| (op_by_multiple_keys_fn_name("load", inward_relation.0, inward_relation.1), inward_relation.clone()))
-        .collect();
-
-    let inward_relations_by_load_keys_by_fn_names: HashMap<Ident, (&RelationInput, &RepositoryInput)> = inward_relations
-        .iter()
-        .map(|inward_relation| (op_keys_by_multiple_fn_name("load", repository_input, inward_relation.0, inward_relation.1), inward_relation.clone()))
+        .map(|inward_relation| {
+            (
+                op_keys_by_multiple_fn_name(
+                    "load",
+                    repository_input,
+                    inward_relation.0,
+                    inward_relation.1,
+                ),
+                inward_relation.clone(),
+            )
+        })
         .collect();
 
     if let Some(adaptor_entity_input) = adaptor_entity_input_opt {
@@ -767,26 +902,43 @@ pub fn read_repository_impl(
             load_by_multiples
                 .keys()
                 .map(|key| format!("`{}`", key))
-                .chain(all_load_by_multiple_keys.keys().map(|key| format!("`{}`", key)))
+                .chain(
+                    all_load_by_multiple_keys
+                        .keys()
+                        .map(|key| format!("`{}`", key))
+                )
                 .collect::<Vec<_>>()
                 .join(", "),
         );
 
         for (load_by_fn_name, body) in adaptor_entity_input.load.by.iter() {
             if load_by_multiples.contains_key(load_by_fn_name) {
-                let inward_relation = inward_relations_by_load_by_fn_names.get(load_by_fn_name).unwrap();
+                let inward_relation = inward_relations_by_load_by_fn_names
+                    .get(load_by_fn_name)
+                    .unwrap();
                 load_by_multiples.insert(
                     load_by_fn_name.clone(),
                     load_by_multiple(inward_relation.0, repository_input, inward_relation.1, body),
                 );
             } else if all_load_by_multiple_keys.contains_key(load_by_fn_name) {
-                let inward_relation = inward_relations_by_load_keys_by_keys_fn_names.get(load_by_fn_name).unwrap();
+                let inward_relation = inward_relations_by_load_keys_by_keys_fn_names
+                    .get(load_by_fn_name)
+                    .unwrap();
                 all_load_by_multiple_keys.insert(
                     load_by_fn_name.clone(),
-                    load_by_multiple_keys(inward_relation.0, repository_input, inward_relation.1, body),
+                    load_by_multiple_keys(
+                        inward_relation.0,
+                        repository_input,
+                        inward_relation.1,
+                        body,
+                    ),
                 );
             } else {
-                return (syn::Error::new_spanned(load_by_fn_name, &invalid_load_by_fn_name_message).into_compile_error(), vec![]);
+                return (
+                    syn::Error::new_spanned(load_by_fn_name, &invalid_load_by_fn_name_message)
+                        .into_compile_error(),
+                    vec![],
+                );
             }
         }
 
@@ -802,13 +954,27 @@ pub fn read_repository_impl(
 
         for (load_keys_by_fn_name, body) in adaptor_entity_input.load.keys_by.iter() {
             if load_keys_by.contains_key(load_keys_by_fn_name) {
-                let inward_relation = inward_relations_by_load_keys_by_fn_names.get(load_keys_by_fn_name).unwrap();
+                let inward_relation = inward_relations_by_load_keys_by_fn_names
+                    .get(load_keys_by_fn_name)
+                    .unwrap();
                 load_keys_by.insert(
                     load_keys_by_fn_name.clone(),
-                    load_keys_by_multiple(repository_input, inward_relation.0, inward_relation.1, body),
+                    load_keys_by_multiple(
+                        repository_input,
+                        inward_relation.0,
+                        inward_relation.1,
+                        body,
+                    ),
                 );
             } else {
-                return (syn::Error::new_spanned(load_keys_by_fn_name, &invalid_load_keys_by_keys_fn_name_message).into_compile_error(), vec![]);
+                return (
+                    syn::Error::new_spanned(
+                        load_keys_by_fn_name,
+                        &invalid_load_keys_by_keys_fn_name_message,
+                    )
+                    .into_compile_error(),
+                    vec![],
+                );
             }
         }
     }
@@ -859,7 +1025,10 @@ pub fn write_repository_impl(
     namespaces: &HashMap<Ident, Ident>,
     repository_input: &RepositoryInput,
     adaptor_entity_input_opt: Option<&AdaptorEntityInput>,
-    repositories_and_adaptor_entity_inputs: &HashMap<Ident, (RepositoryInput, Option<AdaptorEntityInput>)>,
+    repositories_and_adaptor_entity_inputs: &HashMap<
+        Ident,
+        (RepositoryInput, Option<AdaptorEntityInput>),
+    >,
 ) -> TokenStream2 {
     if repository_input.mutability == Mutability::R {
         return quote! {};
@@ -912,10 +1081,21 @@ pub fn write_repository_impl(
                     let children = &adaptor_entity_input.children;
                     let reverse_linked_children = &adaptor_entity_input.reverse_linked_children;
 
-                    let base = format_ident!("{}_{}", format!("{}", entity_prefix).to_case(Case::Snake), singular);
+                    let base = format_ident!(
+                        "{}_{}",
+                        format!("{}", entity_prefix).to_case(Case::Snake),
+                        singular
+                    );
                     let full_ty = format_ident!("Full{}Post", ty);
 
-                    let ChildrenUtils { child_snakes, child_singulars, child_plurals, is_child_vec_types, child_tys, .. } = children_utils(children, repositories_and_adaptor_entity_inputs, "Post");
+                    let ChildrenUtils {
+                        child_snakes,
+                        child_singulars,
+                        child_plurals,
+                        is_child_vec_types,
+                        child_tys,
+                        ..
+                    } = children_utils(children, repositories_and_adaptor_entity_inputs, "Post");
                     let ChildrenUtils {
                         child_snakes: reverse_linked_child_snakes,
                         child_singulars: reverse_linked_child_singulars,
@@ -925,16 +1105,20 @@ pub fn write_repository_impl(
                         is_child_vec_types: reverse_linked_is_child_vec_types,
                         inner_tys: reverse_linked_inner_tys,
                         child_tys: reverse_linked_child_tys,
-                    } = children_utils(reverse_linked_children, repositories_and_adaptor_entity_inputs, "Post");
+                    } = children_utils(
+                        reverse_linked_children,
+                        repositories_and_adaptor_entity_inputs,
+                        "Post",
+                    );
                     let reverse_linked_key_singulars: Vec<_> = reverse_linked_inner_tys
                         .into_iter()
-                        .map(|inner_ty|
+                        .map(|inner_ty| {
                             repositories_and_adaptor_entity_inputs
                                 .get(&inner_ty)
                                 .unwrap()
                                 .0
                                 .key_singular()
-                        )
+                        })
                         .collect();
 
                     let flattened_child_posts: Vec<_> = izip!(child_singulars.iter(), is_child_vec_types.into_iter())
@@ -1059,7 +1243,7 @@ pub fn write_repository_impl(
 
                         Ok([<adaptor_ #plural>])
                     }
-                },
+                }
             };
         }
         if let Some(update) = adaptor_entity_input.update.as_ref() {
@@ -1067,33 +1251,49 @@ pub fn write_repository_impl(
                 AdaptorEntityMutateInput::FnBody(tokens) => tokens.clone(),
                 AdaptorEntityMutateInput::Full => {
                     let children = &adaptor_entity_input.children;
-                    let base = format_ident!("{}_{}", format!("{}", entity_prefix).to_case(Case::Snake), singular);
+                    let base = format_ident!(
+                        "{}_{}",
+                        format!("{}", entity_prefix).to_case(Case::Snake),
+                        singular
+                    );
                     let full_ty = format_ident!("Full{}Patch", ty);
-                    let (child_snakes, is_child_vec_types, child_tys): (Vec<_>, Vec<_>, Vec<_>) = children
-                        .iter()
-                        .map(|child| {
-                            let is_child_vec_type = is_vec_type(&child.ty);
-                            let child_ty = if is_child_vec_type { as_post(&child.ty) } else { format!("Option<{}>", as_patch(&child.ty)).parse().unwrap() };
-                            (
-                                child.snake.clone(),
-                                is_child_vec_type,
-                                child_ty,
-                            )
-                        })
-                        .multiunzip();
+                    let (child_snakes, is_child_vec_types, child_tys): (Vec<_>, Vec<_>, Vec<_>) =
+                        children
+                            .iter()
+                            .map(|child| {
+                                let is_child_vec_type = is_vec_type(&child.ty);
+                                let child_ty = if is_child_vec_type {
+                                    as_post(&child.ty)
+                                } else {
+                                    format!("Option<{}>", as_patch(&child.ty)).parse().unwrap()
+                                };
+                                (child.snake.clone(), is_child_vec_type, child_ty)
+                            })
+                            .multiunzip();
 
-                    let repository_relations: HashMap<Ident, RelationInput> = repository_input.relations
+                    let repository_relations: HashMap<Ident, RelationInput> = repository_input
+                        .relations
                         .clone()
                         .into_iter()
                         .map(|relation| (relation.snake().clone(), relation))
                         .collect();
 
-                    let (child_singulars, child_plurals, child_snake_names, child_inner_tys, child_cardinalities): (Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>) = children
+                    let (
+                        child_singulars,
+                        child_plurals,
+                        child_snake_names,
+                        child_inner_tys,
+                        child_cardinalities,
+                    ): (Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>) = children
                         .iter()
                         .map(|child| {
                             let child_snake = &child.snake;
-                            let repository_and_adaptor_entity_input = repositories_and_adaptor_entity_inputs.get(&inner_ty(&child.ty)).unwrap();
-                            let repository_relation = repository_relations.get(&child.snake).expect(&format!(
+                            let repository_and_adaptor_entity_input =
+                                repositories_and_adaptor_entity_inputs
+                                    .get(&inner_ty(&child.ty))
+                                    .unwrap();
+                            let repository_relation =
+                                repository_relations.get(&child.snake).expect(&format!(
                                 "unrecognized child in `{}`: `{}`; allowed children include: {}",
                                 quote! { #ty },
                                 quote! { #child_snake },
@@ -1260,7 +1460,7 @@ pub fn write_repository_impl(
 
                         Ok([<adaptor_ #plural>])
                     }
-                },
+                }
             };
         }
         if let Some(delete) = adaptor_entity_input.delete.as_ref() {
@@ -1304,9 +1504,13 @@ pub fn write_repository_impl(
 fn get_delete_body(
     ty: &Ident,
     namespaces: &HashMap<Ident, Ident>,
-    repositories_and_adaptor_entity_inputs: &HashMap<Ident, (RepositoryInput, Option<AdaptorEntityInput>)>,
+    repositories_and_adaptor_entity_inputs: &HashMap<
+        Ident,
+        (RepositoryInput, Option<AdaptorEntityInput>),
+    >,
 ) -> TokenStream2 {
-    let repository_and_adaptor_entity_input = repositories_and_adaptor_entity_inputs.get(ty).unwrap();
+    let repository_and_adaptor_entity_input =
+        repositories_and_adaptor_entity_inputs.get(ty).unwrap();
     let repository_input = &repository_and_adaptor_entity_input.0;
     let adaptor_entity_input_opt = &repository_and_adaptor_entity_input.1;
 
@@ -1316,18 +1520,45 @@ fn get_delete_body(
     let key_singular = repository_input.key_singular();
     let key_plural = repository_input.key_plural();
 
-    let (child_snakes, child_plurals, child_key_plurals, reverse_linked_child_snakes, reverse_linked_child_plurals, reverse_linked_child_key_plurals) = match adaptor_entity_input_opt.as_ref() {
+    let (
+        child_snakes,
+        child_plurals,
+        child_key_plurals,
+        reverse_linked_child_snakes,
+        reverse_linked_child_plurals,
+        reverse_linked_child_key_plurals,
+    ) = match adaptor_entity_input_opt.as_ref() {
         None => (vec![], vec![], vec![], vec![], vec![], vec![]),
         Some(adaptor_entity_input) => {
-            let ChildrenUtils { child_snakes, child_plurals, child_key_plurals, .. } = children_utils(&adaptor_entity_input.children, repositories_and_adaptor_entity_inputs, "placeholder");
+            let ChildrenUtils {
+                child_snakes,
+                child_plurals,
+                child_key_plurals,
+                ..
+            } = children_utils(
+                &adaptor_entity_input.children,
+                repositories_and_adaptor_entity_inputs,
+                "placeholder",
+            );
             let ChildrenUtils {
                 child_snakes: reverse_linked_child_snakes,
                 child_plurals: reverse_linked_child_plurals,
                 child_key_plurals: reverse_linked_child_key_plurals,
                 ..
-            } = children_utils(&adaptor_entity_input.reverse_linked_children, repositories_and_adaptor_entity_inputs, "placeholder");
-            (child_snakes, child_plurals, child_key_plurals, reverse_linked_child_snakes, reverse_linked_child_plurals, reverse_linked_child_key_plurals)
-        },
+            } = children_utils(
+                &adaptor_entity_input.reverse_linked_children,
+                repositories_and_adaptor_entity_inputs,
+                "placeholder",
+            );
+            (
+                child_snakes,
+                child_plurals,
+                child_key_plurals,
+                reverse_linked_child_snakes,
+                reverse_linked_child_plurals,
+                reverse_linked_child_key_plurals,
+            )
+        }
     };
 
     quote! {
@@ -1361,9 +1592,12 @@ fn is_vec_type(ty: &Type) -> bool {
     match ty {
         Type::Path(type_path) => {
             let segments: Vec<_> = type_path.path.segments.clone().into_iter().collect();
-            (segments.len() == 1 && segments[0].ident == "Vec") ||
-            (segments.len() == 3 && segments[1].ident == "std" && segments[1].ident == "vec" && segments[1].ident == "Vec")
-        },
+            (segments.len() == 1 && segments[0].ident == "Vec")
+                || (segments.len() == 3
+                    && segments[1].ident == "std"
+                    && segments[1].ident == "vec"
+                    && segments[1].ident == "Vec")
+        }
         _ => false,
     }
 }
@@ -1373,14 +1607,18 @@ fn inner_ty(ty: &Type) -> Ident {
         Type::Path(type_path) => {
             let segments: Vec<_> = type_path.path.segments.clone().into_iter().collect();
             match &segments[segments.len() - 1].arguments {
-                syn::PathArguments::AngleBracketed(angle_bracketed_generic_arguments) => match angle_bracketed_generic_arguments.args.first().unwrap() {
-                    syn::GenericArgument::Type(inner_ty) => format_ident!("{}", format!("{}", quote! { #inner_ty })),
-                    _ => unreachable!(),
-                },
+                syn::PathArguments::AngleBracketed(angle_bracketed_generic_arguments) => {
+                    match angle_bracketed_generic_arguments.args.first().unwrap() {
+                        syn::GenericArgument::Type(inner_ty) => {
+                            format_ident!("{}", format!("{}", quote! { #inner_ty }))
+                        }
+                        _ => unreachable!(),
+                    }
+                }
                 syn::PathArguments::None => format_ident!("{}", format!("{}", quote! { #ty })),
                 _ => unreachable!(),
             }
-        },
+        }
         _ => unreachable!(),
     }
 }
@@ -1390,14 +1628,27 @@ fn append_to_inner_ty(ty: &Type, tail: Ident) -> TokenStream2 {
         Type::Path(type_path) => {
             let segments: Vec<_> = type_path.path.segments.clone().into_iter().collect();
             match &segments[segments.len() - 1].arguments {
-                syn::PathArguments::AngleBracketed(angle_bracketed_generic_arguments) => match angle_bracketed_generic_arguments.args.first().unwrap() {
-                    syn::GenericArgument::Type(inner_ty) => format!("{}<{}{}>", segments[segments.len() - 1].ident, format!("{}", quote! { #inner_ty }), tail).parse().unwrap(),
-                    _ => unreachable!(),
-                },
-                syn::PathArguments::None => format!("{}{}", segments[segments.len() - 1].ident, tail).parse().unwrap(),
+                syn::PathArguments::AngleBracketed(angle_bracketed_generic_arguments) => {
+                    match angle_bracketed_generic_arguments.args.first().unwrap() {
+                        syn::GenericArgument::Type(inner_ty) => format!(
+                            "{}<{}{}>",
+                            segments[segments.len() - 1].ident,
+                            format!("{}", quote! { #inner_ty }),
+                            tail
+                        )
+                        .parse()
+                        .unwrap(),
+                        _ => unreachable!(),
+                    }
+                }
+                syn::PathArguments::None => {
+                    format!("{}{}", segments[segments.len() - 1].ident, tail)
+                        .parse()
+                        .unwrap()
+                }
                 _ => unreachable!(),
             }
-        },
+        }
         _ => unreachable!(),
     }
 }
@@ -1423,7 +1674,10 @@ struct ChildrenUtils<'a> {
 
 fn children_utils<'a, 'b: 'a, 'c: 'a>(
     children: &'b Vec<ChildInput>,
-    repositories_and_adaptor_entity_inputs: &'c HashMap<Ident, (RepositoryInput, Option<AdaptorEntityInput>)>,
+    repositories_and_adaptor_entity_inputs: &'c HashMap<
+        Ident,
+        (RepositoryInput, Option<AdaptorEntityInput>),
+    >,
     tail: &str,
 ) -> ChildrenUtils<'a> {
     let (
@@ -1435,10 +1689,21 @@ fn children_utils<'a, 'b: 'a, 'c: 'a>(
         is_child_vec_types,
         inner_tys,
         child_tys,
-    ): (Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>) = children
+    ): (
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+    ) = children
         .iter()
         .map(|child| {
-            let repository_and_adaptor_entity_input = repositories_and_adaptor_entity_inputs.get(&inner_ty(&child.ty)).unwrap();
+            let repository_and_adaptor_entity_input = repositories_and_adaptor_entity_inputs
+                .get(&inner_ty(&child.ty))
+                .unwrap();
             (
                 &child.snake,
                 repository_and_adaptor_entity_input.0.singular(),
@@ -1451,5 +1716,14 @@ fn children_utils<'a, 'b: 'a, 'c: 'a>(
             )
         })
         .multiunzip();
-    ChildrenUtils { child_snakes, child_singulars, child_plurals, child_key_singulars, child_key_plurals, is_child_vec_types, inner_tys, child_tys }
+    ChildrenUtils {
+        child_snakes,
+        child_singulars,
+        child_plurals,
+        child_key_singulars,
+        child_key_plurals,
+        is_child_vec_types,
+        inner_tys,
+        child_tys,
+    }
 }

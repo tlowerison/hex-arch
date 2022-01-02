@@ -1,9 +1,9 @@
 use convert_case::{Case, Casing};
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{TokenStreamExt, ToTokens};
-use syn::{braced, Ident, parenthesized, token::Paren, Token, Type};
+use quote::{ToTokens, TokenStreamExt};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
+use syn::{braced, parenthesized, token::Paren, Ident, Token, Type};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Cardinality {
@@ -116,7 +116,6 @@ fields! {
     }
 }
 
-
 impl From<&Ident> for Cardinality {
     fn from(ident: &Ident) -> Cardinality {
         match &*format!("{}", ident) {
@@ -152,7 +151,10 @@ impl From<&Ident> for Mutability {
         match &*string {
             "R" => Mutability::R,
             "RW" => Mutability::RW,
-            other => panic!("unrecognized mutability: expected one of {{R, RW}}, received {}", other),
+            other => panic!(
+                "unrecognized mutability: expected one of {{R, RW}}, received {}",
+                other
+            ),
         }
     }
 }
@@ -169,7 +171,10 @@ impl From<&Ident> for Syncability {
         match &*string {
             "sync" => Syncability::Sync,
             "unsync" => Syncability::Unsync,
-            other => panic!("unrecognized syncability: expected one of {{sync, unsync}}, received {}", other),
+            other => panic!(
+                "unrecognized syncability: expected one of {{sync, unsync}}, received {}",
+                other
+            ),
         }
     }
 }
@@ -188,7 +193,8 @@ impl Parse for RepositoriesInput {
         let name: Option<Ident> = input.parse().ok();
 
         braced!(in_brace in input);
-        let repositories: Punctuated<RepositoryInput, Token![,]> = in_brace.parse_terminated(RepositoryInput::parse)?;
+        let repositories: Punctuated<RepositoryInput, Token![,]> =
+            in_brace.parse_terminated(RepositoryInput::parse)?;
 
         let mut input = RepositoriesInput {
             name,
@@ -196,7 +202,8 @@ impl Parse for RepositoriesInput {
                 .into_iter()
                 .map(|repository| RepositoryInput {
                     syncability: Some(syncability.clone()),
-                    relations: repository.relations
+                    relations: repository
+                        .relations
                         .into_iter()
                         .map(|relation| RelationInput {
                             syncability: Some(syncability.clone()),
@@ -208,7 +215,12 @@ impl Parse for RepositoriesInput {
                 .collect(),
         };
 
-        let read_repositories = input.tys().into_iter().map(|ty| format!("{}ReadRepository", ty)).collect::<Vec<_>>().join(" + ");
+        let read_repositories = input
+            .tys()
+            .into_iter()
+            .map(|ty| format!("{}ReadRepository", ty))
+            .collect::<Vec<_>>()
+            .join(" + ");
 
         for repository in input.repositories.iter_mut() {
             repository.read_repositories = read_repositories.clone().parse().unwrap();
@@ -277,7 +289,7 @@ impl Parse for RelationInput {
             idents: RelationIdents {
                 ty: ty_ident,
                 plural: plural_ident.unwrap_or_else(|| match cardinality {
-                    Cardinality::One|Cardinality::OneOrNone => format_ident!("{}s", snake_ident),
+                    Cardinality::One | Cardinality::OneOrNone => format_ident!("{}s", snake_ident),
                     _ => snake_ident.clone(),
                 }),
                 snake: snake_ident,
@@ -313,8 +325,13 @@ impl Parse for LoadByInput {
         let cardinality = Cardinality::from(&in_paren.parse()?);
 
         match &cardinality {
-            Cardinality::OneOrNone|Cardinality::AtLeastOne => return Err(syn::Error::new(cardinality_span, "load by cardinality must be one of {One, Many}")),
-            _ => {},
+            Cardinality::OneOrNone | Cardinality::AtLeastOne => {
+                return Err(syn::Error::new(
+                    cardinality_span,
+                    "load by cardinality must be one of {One, Many}",
+                ))
+            }
+            _ => {}
         };
 
         Ok(LoadByInput {
@@ -381,21 +398,25 @@ impl RepositoryInput {
         &self.read_repositories
     }
 
-    pub fn inward_relations<'a>(&self, repositories_input: &'a RepositoriesInput) -> Vec<(&'a RelationInput, &'a RepositoryInput)> {
-        repositories_input.repositories
+    pub fn inward_relations<'a>(
+        &self,
+        repositories_input: &'a RepositoriesInput,
+    ) -> Vec<(&'a RelationInput, &'a RepositoryInput)> {
+        repositories_input
+            .repositories
             .iter()
-            .map(|rep|
+            .map(|rep| {
                 rep.relations
                     .iter()
-                    .filter_map(|relation|
+                    .filter_map(|relation| {
                         if *relation.ty() == *self.ty() {
                             Some((relation, rep))
                         } else {
                             None
                         }
-                    )
+                    })
                     .collect::<Vec<_>>()
-            )
+            })
             .flatten()
             .collect()
     }

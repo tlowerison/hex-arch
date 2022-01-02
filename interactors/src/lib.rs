@@ -71,14 +71,20 @@ pub struct Context<Client, KeyValueClient> {
 }
 
 impl<Client, KeyValueClient> Context<Client, KeyValueClient> {
-    pub fn new(client: Client, key_value_client: KeyValueClient) -> Context<Client, KeyValueClient> {
+    pub fn new(
+        client: Client,
+        key_value_client: KeyValueClient,
+    ) -> Context<Client, KeyValueClient> {
         Context {
             client,
             key_value_client,
         }
     }
 
-    pub fn with<Q: Into<Client>, P: Into<KeyValueClient>>(q: Q, p: P) -> Context<Client, KeyValueClient> {
+    pub fn with<Q: Into<Client>, P: Into<KeyValueClient>>(
+        q: Q,
+        p: P,
+    ) -> Context<Client, KeyValueClient> {
         Context {
             client: q.into(),
             key_value_client: p.into(),

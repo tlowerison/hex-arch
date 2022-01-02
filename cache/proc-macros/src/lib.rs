@@ -7,10 +7,10 @@ extern crate quote;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use std::collections::HashMap;
-use syn::{braced, Ident, parenthesized, Token, Type};
 use syn::parse::{Parse, ParseStream};
 use syn::parse_macro_input;
 use syn::punctuated::Punctuated;
+use syn::{braced, parenthesized, Ident, Token, Type};
 
 struct CachesInput {
     namespace: Ident,
@@ -50,7 +50,8 @@ impl Parse for CachesInput {
             adaptor_trait_bound: fields.adaptor_trait_bound,
             key_value_client_trait_bound: fields.key_value_client_trait_bound,
             use_uuid_input: fields.use_uuid,
-            cache_inputs: fields.entities
+            cache_inputs: fields
+                .entities
                 .into_iter()
                 .map(|cache_input| (cache_input.plural.clone(), cache_input))
                 .collect(),
@@ -93,7 +94,12 @@ impl Parse for CacheInput {
         let in_braces;
         braced!(in_braces in parse_stream);
 
-        let CacheInputFields { key, value, dependents, load: load_values_fn } = in_braces.parse()?;
+        let CacheInputFields {
+            key,
+            value,
+            dependents,
+            load: load_values_fn,
+        } = in_braces.parse()?;
 
         Ok(CacheInput {
             plural,
@@ -127,8 +133,15 @@ fields!(CacheInput {
 
 impl Parse for KeyInput {
     fn parse(parse_stream: ParseStream) -> syn::Result<KeyInput> {
-        let KeyInputFields { ty, accessor: (accessor_ident, accessor) } = parse_stream.parse()?;
-        Ok(KeyInput { ty, accessor_ident, accessor })
+        let KeyInputFields {
+            ty,
+            accessor: (accessor_ident, accessor),
+        } = parse_stream.parse()?;
+        Ok(KeyInput {
+            ty,
+            accessor_ident,
+            accessor,
+        })
     }
 }
 
@@ -162,7 +175,12 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
     for cache_input in caches_input.cache_inputs.values() {
         for dependent in cache_input.dependents.iter() {
             if *dependent == cache_input.plural {
-                return syn::parse::Error::new_spanned(dependent, "cache key cannot depend on itself (no self-cycles allowed)").into_compile_error().into();
+                return syn::parse::Error::new_spanned(
+                    dependent,
+                    "cache key cannot depend on itself (no self-cycles allowed)",
+                )
+                .into_compile_error()
+                .into();
             }
             if !caches_input.cache_inputs.contains_key(dependent) {
                 return syn::parse::Error::new_spanned(
@@ -176,20 +194,49 @@ pub fn caches(token_stream: TokenStream) -> TokenStream {
     let namespace = &caches_input.namespace;
     let adaptor_trait_bound = &caches_input.adaptor_trait_bound;
     let key_value_client_trait_bound = &caches_input.key_value_client_trait_bound;
-    let load_values_fns: Vec<_> = caches_input.cache_inputs.values().map(|cache_input| cache_input.load_values_fn.clone()).collect();
-    let plurals: Vec<_> = caches_input.cache_inputs.values().map(|cache_input| cache_input.plural.clone()).collect();
-    let tys: Vec<_> = caches_input.cache_inputs.values().map(|cache_input| cache_input.ty(&namespace)).collect();
-    let keys: Vec<_> = caches_input.cache_inputs.values().map(|cache_input| &cache_input.key.ty).collect();
-    let key_accessor_idents: Vec<_> = caches_input.cache_inputs.values().map(|cache_input| &cache_input.key.accessor_ident).collect();
-    let key_accessors: Vec<_> = caches_input.cache_inputs.values().map(|cache_input| &cache_input.key.accessor).collect();
-    let values: Vec<_> = caches_input.cache_inputs.values().map(|cache_input| &cache_input.value).collect();
+    let load_values_fns: Vec<_> = caches_input
+        .cache_inputs
+        .values()
+        .map(|cache_input| cache_input.load_values_fn.clone())
+        .collect();
+    let plurals: Vec<_> = caches_input
+        .cache_inputs
+        .values()
+        .map(|cache_input| cache_input.plural.clone())
+        .collect();
+    let tys: Vec<_> = caches_input
+        .cache_inputs
+        .values()
+        .map(|cache_input| cache_input.ty(&namespace))
+        .collect();
+    let keys: Vec<_> = caches_input
+        .cache_inputs
+        .values()
+        .map(|cache_input| &cache_input.key.ty)
+        .collect();
+    let key_accessor_idents: Vec<_> = caches_input
+        .cache_inputs
+        .values()
+        .map(|cache_input| &cache_input.key.accessor_ident)
+        .collect();
+    let key_accessors: Vec<_> = caches_input
+        .cache_inputs
+        .values()
+        .map(|cache_input| &cache_input.key.accessor)
+        .collect();
+    let values: Vec<_> = caches_input
+        .cache_inputs
+        .values()
+        .map(|cache_input| &cache_input.value)
+        .collect();
 
     let use_uuid_name_ident = &caches_input.use_uuid_input.name_ident;
     let use_uuid_uuid_ident = &caches_input.use_uuid_input.uuid_ident;
     let use_uuid_key_value_client_ident = &caches_input.use_uuid_input.key_value_client_ident;
     let use_uuid_fn_body = &caches_input.use_uuid_input.fn_body;
 
-    let dependent_plurals: Vec<Vec<_>> = caches_input.cache_inputs
+    let dependent_plurals: Vec<Vec<_>> = caches_input
+        .cache_inputs
         .values()
         .map(|cache_input| cache_input.dependents.clone())
         .collect();

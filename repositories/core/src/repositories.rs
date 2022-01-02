@@ -9,8 +9,13 @@ pub fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream2 {
 
     let deref = quote! { use std::ops::Deref as RepositoriesDeref; };
 
-    let readables: Vec<_> = input.repositories.iter().map(|repository| repository.ty()).collect();
-    let writables: Vec<_> = input.repositories
+    let readables: Vec<_> = input
+        .repositories
+        .iter()
+        .map(|repository| repository.ty())
+        .collect();
+    let writables: Vec<_> = input
+        .repositories
         .iter()
         .filter_map(|repository| match repository.mutability {
             Mutability::RW => Some(repository.ty()),
@@ -47,12 +52,14 @@ pub fn repositories(input: RepositoriesInput, todo: bool) -> TokenStream2 {
 pub mod read_repositories {
     use super::*;
 
-    pub fn read_repositories(input: &RepositoriesInput,  todo: bool) -> TokenStream2 {
-        let read_repositories: Vec<_> = input.repositories
+    pub fn read_repositories(input: &RepositoriesInput, todo: bool) -> TokenStream2 {
+        let read_repositories: Vec<_> = input
+            .repositories
             .iter()
             .map(|repository| {
                 let ty_base_repository = ty_base_repository(repository);
-                let ty_read_repository = ty_read_repository::ty_read_repository(repository, input, todo);
+                let ty_read_repository =
+                    ty_read_repository::ty_read_repository(repository, input, todo);
 
                 if todo {
                     quote! {
@@ -63,10 +70,14 @@ pub mod read_repositories {
                     let ty_entity = ty_entity(repository);
                     let load_ty_relations = load_ty_relations(repository);
                     let loaded_ty_relations = loaded_ty_relations(repository);
-                    let get_ty_singular_builder = builders::get_ty_singular_builder(repository, input);
-                    let get_ty_multiple_builder = builders::get_ty_multiple_builder(repository, input);
-                    let try_get_ty_singular_builder = builders::try_get_ty_singular_builder(repository, input);
-                    let try_get_ty_multiple_builder = builders::try_get_ty_multiple_builder(repository, input);
+                    let get_ty_singular_builder =
+                        builders::get_ty_singular_builder(repository, input);
+                    let get_ty_multiple_builder =
+                        builders::get_ty_multiple_builder(repository, input);
+                    let try_get_ty_singular_builder =
+                        builders::try_get_ty_singular_builder(repository, input);
+                    let try_get_ty_multiple_builder =
+                        builders::try_get_ty_multiple_builder(repository, input);
                     let get_by_fields: Vec<_> = repository
                         .load_bys
                         .iter()
@@ -143,7 +154,8 @@ pub mod read_repositories {
     fn loaded_ty_relations(repository: &RepositoryInput) -> TokenStream2 {
         let ty = repository.ty();
         let relation_snakes = repository.relation_snakes();
-        let relation_types: Vec<_> = repository.relations
+        let relation_types: Vec<_> = repository
+            .relations
             .iter()
             .map(loaded_relation_type)
             .collect();
@@ -180,7 +192,7 @@ pub mod read_repositories {
                     Option<Box<Option<[<#ty Entity>]>>>
                 }
             },
-            Cardinality::AtLeastOne|Cardinality::Many => quote! {
+            Cardinality::AtLeastOne | Cardinality::Many => quote! {
                 hex_arch_paste! {
                     Option<Box<Vec<[<#ty Entity>]>>>
                 }
@@ -205,7 +217,11 @@ pub mod read_repositories {
         use super::*;
         use shared::*;
 
-        pub fn ty_read_repository(repository: &RepositoryInput, input: &RepositoriesInput, todo: bool) -> TokenStream2 {
+        pub fn ty_read_repository(
+            repository: &RepositoryInput,
+            input: &RepositoriesInput,
+            todo: bool,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
@@ -217,24 +233,36 @@ pub mod read_repositories {
 
             let inward_relations = repository.inward_relations(input);
 
-            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
+            let body = if todo {
+                quote! { { todo!() } }
+            } else {
+                quote! { ; }
+            };
 
             let load_by_multiples: Vec<_> = inward_relations
                 .iter()
-                .map(|(relation, relation_repository)| load_by_multiple(relation, repository, relation_repository, &body))
+                .map(|(relation, relation_repository)| {
+                    load_by_multiple(relation, repository, relation_repository, &body)
+                })
                 .collect();
             let load_by_multiple_keys: Vec<_> = inward_relations
                 .iter()
-                .map(|(relation, relation_repository)| load_by_multiple_keys(relation, repository, relation_repository, &body))
+                .map(|(relation, relation_repository)| {
+                    load_by_multiple_keys(relation, repository, relation_repository, &body)
+                })
                 .collect();
 
             let get_by_singles: Vec<_> = inward_relations
                 .iter()
-                .map(|(relation, relation_repository)| get_by_single(relation, repository, relation_repository))
+                .map(|(relation, relation_repository)| {
+                    get_by_single(relation, repository, relation_repository)
+                })
                 .collect();
             let get_by_multiples: Vec<_> = inward_relations
                 .iter()
-                .map(|(relation, relation_repository)| get_by_multiple(relation, repository, relation_repository))
+                .map(|(relation, relation_repository)| {
+                    get_by_multiple(relation, repository, relation_repository)
+                })
                 .collect();
 
             let load_by_field_multiples: Vec<_> = repository
@@ -307,7 +335,11 @@ pub mod read_repositories {
             let plural = repository.plural();
             let read_repositories = repository.read_repositories();
 
-            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
+            let body = if todo {
+                quote! { { todo!() } }
+            } else {
+                quote! { ; }
+            };
 
             let todo_fns = quote! {
                 hex_arch_paste! {
@@ -372,7 +404,8 @@ pub mod read_repositories {
             let relation_snakes = repository.relation_snakes();
             let read_repositories = repository.read_repositories();
 
-            let load_in_multiples: Vec<_> = repository.relations
+            let load_in_multiples: Vec<_> = repository
+                .relations
                 .iter()
                 .map(|relation| shared::load_in_multiple(repository, relation))
                 .collect();
@@ -434,11 +467,17 @@ pub mod read_repositories {
             }
         }
 
-        pub fn load_by_multiple(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
+        pub fn load_by_multiple(
+            relation: &RelationInput,
+            repository: &RepositoryInput,
+            relation_repository: &RepositoryInput,
+            body: &TokenStream2,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let relation_ty = relation_repository.ty();
             let relation_plural = relation_repository.plural();
-            let load_by_multiple_fn_name = op_by_multiple_fn_name("load", relation, relation_repository);
+            let load_by_multiple_fn_name =
+                op_by_multiple_fn_name("load", relation, relation_repository);
 
             quote! {
                 hex_arch_paste! {
@@ -459,12 +498,18 @@ pub mod read_repositories {
             }
         }
 
-        pub fn load_by_multiple_keys(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
+        pub fn load_by_multiple_keys(
+            relation: &RelationInput,
+            repository: &RepositoryInput,
+            relation_repository: &RepositoryInput,
+            body: &TokenStream2,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let relation_ty = relation_repository.ty();
             let relation_singular = relation_repository.singular();
             let relation_key_plural = relation_repository.key_plural();
-            let load_by_multiple_keys_fn_name = op_by_multiple_keys_fn_name("load", relation, relation_repository);
+            let load_by_multiple_keys_fn_name =
+                op_by_multiple_keys_fn_name("load", relation, relation_repository);
 
             let return_ty = quote! { hex_arch_paste! {
                 hex_arch::PreSortValues<(
@@ -486,16 +531,22 @@ pub mod read_repositories {
             }
         }
 
-        pub fn get_by_single(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_by_single(
+            relation: &RelationInput,
+            repository: &RepositoryInput,
+            relation_repository: &RepositoryInput,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
             let plural = repository.plural();
             let relation_snakes = repository.relation_snakes();
-            let relation_load_in_singles: Vec<_> = repository.relations
+            let relation_load_in_singles: Vec<_> = repository
+                .relations
                 .iter()
                 .map(|relation| shared::load_in_single(repository, relation))
                 .collect();
-            let relation_load_in_multiples: Vec<_> = repository.relations
+            let relation_load_in_multiples: Vec<_> = repository
+                .relations
                 .iter()
                 .map(|relation| load_in_multiple(repository, relation))
                 .collect();
@@ -505,22 +556,29 @@ pub mod read_repositories {
             let read_repositories = repository.read_repositories();
 
             let get_by_single_fn_name = op_by_single_fn_name("get", relation, relation_repository);
-            let load_by_multiple_fn_name = op_by_multiple_fn_name("load", relation, relation_repository);
+            let load_by_multiple_fn_name =
+                op_by_multiple_fn_name("load", relation, relation_repository);
 
             let return_ty = match relation.cardinality {
-                Cardinality::One => { quote! { hex_arch_paste! {
-                    [<#ty Entity>]
-                } } },
-                Cardinality::OneOrNone => { quote! { hex_arch_paste! {
-                    Option<[<#ty Entity>]>
-                } } },
-                Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
-                    Vec<(
-                        [<#ty Entity>],
-                        <Self as [<#ty BaseRepository>]>::Key,
-                        <Self as [<#relation_ty BaseRepository>]>::Key,
-                    )>
-                } } },
+                Cardinality::One => {
+                    quote! { hex_arch_paste! {
+                        [<#ty Entity>]
+                    } }
+                }
+                Cardinality::OneOrNone => {
+                    quote! { hex_arch_paste! {
+                        Option<[<#ty Entity>]>
+                    } }
+                }
+                Cardinality::Many | Cardinality::AtLeastOne => {
+                    quote! { hex_arch_paste! {
+                        Vec<(
+                            [<#ty Entity>],
+                            <Self as [<#ty BaseRepository>]>::Key,
+                            <Self as [<#relation_ty BaseRepository>]>::Key,
+                        )>
+                    } }
+                }
             };
 
             let body = match relation.cardinality {
@@ -658,11 +716,16 @@ pub mod read_repositories {
             }
         }
 
-        pub fn get_by_multiple(relation: &RelationInput, repository: &RepositoryInput, relation_repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_by_multiple(
+            relation: &RelationInput,
+            repository: &RepositoryInput,
+            relation_repository: &RepositoryInput,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_snakes = repository.relation_snakes();
-            let relation_load_in_multiples: Vec<_> = repository.relations
+            let relation_load_in_multiples: Vec<_> = repository
+                .relations
                 .iter()
                 .map(|relation| load_in_multiple(repository, relation))
                 .collect();
@@ -671,23 +734,31 @@ pub mod read_repositories {
             let relation_plural = relation_repository.plural();
             let read_repositories = repository.read_repositories();
 
-            let get_by_multiple_fn_name = op_by_multiple_fn_name("get", relation, relation_repository);
-            let load_by_multiple_fn_name = op_by_multiple_fn_name("load", relation, relation_repository);
+            let get_by_multiple_fn_name =
+                op_by_multiple_fn_name("get", relation, relation_repository);
+            let load_by_multiple_fn_name =
+                op_by_multiple_fn_name("load", relation, relation_repository);
 
             let return_ty = match relation.cardinality {
-                Cardinality::One => { quote! { hex_arch_paste! {
-                    Vec<[<#ty Entity>]>
-                } } },
-                Cardinality::OneOrNone => { quote! { hex_arch_paste! {
-                    Vec<Option<[<#ty Entity>]>>
-                } } },
-                Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
-                    Vec<(
-                        [<#ty Entity>],
-                        <Self as [<#ty BaseRepository>]>::Key,
-                        <Self as [<#relation_ty BaseRepository>]>::Key,
-                    )>
-                } } },
+                Cardinality::One => {
+                    quote! { hex_arch_paste! {
+                        Vec<[<#ty Entity>]>
+                    } }
+                }
+                Cardinality::OneOrNone => {
+                    quote! { hex_arch_paste! {
+                        Vec<Option<[<#ty Entity>]>>
+                    } }
+                }
+                Cardinality::Many | Cardinality::AtLeastOne => {
+                    quote! { hex_arch_paste! {
+                        Vec<(
+                            [<#ty Entity>],
+                            <Self as [<#ty BaseRepository>]>::Key,
+                            <Self as [<#relation_ty BaseRepository>]>::Key,
+                        )>
+                    } }
+                }
             };
 
             let body = match relation.cardinality {
@@ -809,26 +880,40 @@ pub mod read_repositories {
             }
         }
 
-        pub fn get_load_by_field_multiple_fn_name(repository: &RepositoryInput, load_by: &LoadByInput) -> Ident {
+        pub fn get_load_by_field_multiple_fn_name(
+            repository: &RepositoryInput,
+            load_by: &LoadByInput,
+        ) -> Ident {
             format_ident!("load_{}_by_{}", repository.plural(), load_by.plural())
         }
 
-        pub fn load_by_field_multiple(repository: &RepositoryInput, load_by: &LoadByInput, body: &TokenStream2, try_body: &TokenStream2) -> TokenStream2 {
+        pub fn load_by_field_multiple(
+            repository: &RepositoryInput,
+            load_by: &LoadByInput,
+            body: &TokenStream2,
+            try_body: &TokenStream2,
+        ) -> TokenStream2 {
             let ty = repository.ty();
 
             let load_by_ty = load_by.ty();
             let load_by_plural = load_by.plural();
 
-            let load_by_field_multiple_fn_name = get_load_by_field_multiple_fn_name(repository, load_by);
-            let try_load_by_field_multiple_fn_name = format_ident!("try_{}", load_by_field_multiple_fn_name);
+            let load_by_field_multiple_fn_name =
+                get_load_by_field_multiple_fn_name(repository, load_by);
+            let try_load_by_field_multiple_fn_name =
+                format_ident!("try_{}", load_by_field_multiple_fn_name);
 
             let return_ty = match load_by.cardinality {
-                Cardinality::One|Cardinality::OneOrNone => { quote! { hex_arch_paste! {
-                    hex_arch::PreSortValues<<Self as [<#ty BaseRepository>]>::Record>
-                } } },
-                Cardinality::Many|Cardinality::AtLeastOne => { quote! { hex_arch_paste! {
-                    Vec<<Self as [<#ty BaseRepository>]>::Record>
-                } } },
+                Cardinality::One | Cardinality::OneOrNone => {
+                    quote! { hex_arch_paste! {
+                        hex_arch::PreSortValues<<Self as [<#ty BaseRepository>]>::Record>
+                    } }
+                }
+                Cardinality::Many | Cardinality::AtLeastOne => {
+                    quote! { hex_arch_paste! {
+                        Vec<<Self as [<#ty BaseRepository>]>::Record>
+                    } }
+                }
             };
 
             quote! {
@@ -856,8 +941,10 @@ pub mod read_repositories {
             let load_by_singular = load_by.singular();
             let load_by_plural = load_by.plural();
 
-            let load_by_field_multiple_fn_name = get_load_by_field_multiple_fn_name(repository, load_by);
-            let try_load_by_field_multiple_fn_name = format_ident!("try_{}", load_by_field_multiple_fn_name);
+            let load_by_field_multiple_fn_name =
+                get_load_by_field_multiple_fn_name(repository, load_by);
+            let try_load_by_field_multiple_fn_name =
+                format_ident!("try_{}", load_by_field_multiple_fn_name);
 
             match load_by.cardinality {
                 Cardinality::One => quote! { hex_arch_paste! {
@@ -924,12 +1011,18 @@ pub mod read_repositories {
             }
         }
 
-        pub fn load_keys_by_multiple(repository: &RepositoryInput, relation: &RelationInput, relation_repository: &RepositoryInput, body: &TokenStream2) -> TokenStream2 {
+        pub fn load_keys_by_multiple(
+            repository: &RepositoryInput,
+            relation: &RelationInput,
+            relation_repository: &RepositoryInput,
+            body: &TokenStream2,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let relation_ty = relation_repository.ty();
             let relation_key_plural = relation_repository.key_plural();
             let relation_singular = relation_repository.singular();
-            let fn_name = op_keys_by_multiple_fn_name("load", repository, relation, relation_repository);
+            let fn_name =
+                op_keys_by_multiple_fn_name("load", repository, relation, relation_repository);
             quote! {
                 hex_arch_paste! {
                     pub (crate) fn #fn_name(
@@ -946,7 +1039,10 @@ pub mod read_repositories {
     pub mod builders {
         use super::*;
 
-        pub fn get_ty_singular_builder(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
+        pub fn get_ty_singular_builder(
+            repository: &RepositoryInput,
+            input: &RepositoriesInput,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
@@ -1052,7 +1148,10 @@ pub mod read_repositories {
             }
         }
 
-        pub fn get_ty_multiple_builder(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
+        pub fn get_ty_multiple_builder(
+            repository: &RepositoryInput,
+            input: &RepositoriesInput,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
@@ -1251,7 +1350,10 @@ pub mod read_repositories {
             }
         }
 
-        pub fn try_get_ty_singular_builder(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
+        pub fn try_get_ty_singular_builder(
+            repository: &RepositoryInput,
+            input: &RepositoriesInput,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
@@ -1378,7 +1480,10 @@ pub mod read_repositories {
             }
         }
 
-        pub fn try_get_ty_multiple_builder(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
+        pub fn try_get_ty_multiple_builder(
+            repository: &RepositoryInput,
+            input: &RepositoriesInput,
+        ) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
@@ -1488,23 +1593,37 @@ pub mod write_repositories {
     use super::*;
 
     pub fn write_repositories(input: &RepositoriesInput, todo: bool) -> TokenStream2 {
-        let write_repositories: Vec<_> = input.repositories
+        let write_repositories: Vec<_> = input
+            .repositories
             .iter()
-            .filter(|repository| if let Mutability::RW = repository.mutability { true } else { false })
+            .filter(|repository| {
+                if let Mutability::RW = repository.mutability {
+                    true
+                } else {
+                    false
+                }
+            })
             .map(|repository| {
-                let ty_write_repository = ty_write_repository::ty_write_repository(repository, todo);
+                let ty_write_repository =
+                    ty_write_repository::ty_write_repository(repository, todo);
 
                 if todo {
                     quote! {
                         #ty_write_repository
                     }
                 } else {
-                    let delete_ty_singular_builder = builders::delete_ty_singular_builder(repository);
-                    let delete_ty_multiple_builder = builders::delete_ty_multiple_builder(repository);
-                    let insert_ty_singular_builder = builders::insert_ty_singular_builder(repository);
-                    let insert_ty_multiple_builder = builders::insert_ty_multiple_builder(repository);
-                    let update_ty_singular_builder = builders::update_ty_singular_builder(repository);
-                    let update_ty_multiple_builder = builders::update_ty_multiple_builder(repository);
+                    let delete_ty_singular_builder =
+                        builders::delete_ty_singular_builder(repository);
+                    let delete_ty_multiple_builder =
+                        builders::delete_ty_multiple_builder(repository);
+                    let insert_ty_singular_builder =
+                        builders::insert_ty_singular_builder(repository);
+                    let insert_ty_multiple_builder =
+                        builders::insert_ty_multiple_builder(repository);
+                    let update_ty_singular_builder =
+                        builders::update_ty_singular_builder(repository);
+                    let update_ty_multiple_builder =
+                        builders::update_ty_multiple_builder(repository);
                     quote! {
                         #ty_write_repository
                         #delete_ty_singular_builder
@@ -1532,7 +1651,11 @@ pub mod write_repositories {
             let plural = repository.plural();
             let key_plural = repository.key_plural();
 
-            let body = if todo { quote! { { todo!() } } } else { quote! { ; } };
+            let body = if todo {
+                quote! { { todo!() } }
+            } else {
+                quote! { ; }
+            };
 
             quote! {
                 hex_arch_paste! {
@@ -1856,7 +1979,11 @@ pub mod shared {
             RepositoryInput { City },
         ) == "load_avenues_by_city"
     */
-    pub fn op_by_single_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
+    pub fn op_by_single_fn_name(
+        op: &str,
+        relation: &RelationInput,
+        relation_repository: &RepositoryInput,
+    ) -> Ident {
         let relation_plural = relation.plural(); // cities | avenues
         let relation_ty_singular = relation_repository.singular(); // road | city
         format_ident!("{}_{}_by_{}", op, relation_plural, relation_ty_singular)
@@ -1877,25 +2004,51 @@ pub mod shared {
             RepositoryInput { City },
         ) == "load_avenues_by_cities"
     */
-    pub fn op_by_multiple_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
+    pub fn op_by_multiple_fn_name(
+        op: &str,
+        relation: &RelationInput,
+        relation_repository: &RepositoryInput,
+    ) -> Ident {
         let relation_plural = relation.plural(); // cities | avenues
         let relation_ty_plural = relation_repository.plural(); // roads | cities
         format_ident!("{}_{}_by_{}", op, relation_plural, relation_ty_plural)
     }
 
-    pub fn op_by_multiple_keys_fn_name(op: &str, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
+    pub fn op_by_multiple_keys_fn_name(
+        op: &str,
+        relation: &RelationInput,
+        relation_repository: &RepositoryInput,
+    ) -> Ident {
         let relation_plural = relation.plural();
         let relation_ty_singular = relation_repository.singular();
         let relation_ty_key_plural = relation_repository.key_plural();
-        format_ident!("{}_{}_by_{}_{}", op, relation_plural, relation_ty_singular, relation_ty_key_plural)
+        format_ident!(
+            "{}_{}_by_{}_{}",
+            op,
+            relation_plural,
+            relation_ty_singular,
+            relation_ty_key_plural
+        )
     }
 
-    pub fn op_keys_by_multiple_fn_name(op: &str, repository: &RepositoryInput, relation: &RelationInput, relation_repository: &RepositoryInput) -> Ident {
+    pub fn op_keys_by_multiple_fn_name(
+        op: &str,
+        repository: &RepositoryInput,
+        relation: &RelationInput,
+        relation_repository: &RepositoryInput,
+    ) -> Ident {
         let relation_snake = relation.snake();
         let key_plural = repository.key_plural();
         let relation_ty_singular = relation_repository.singular();
         let relation_ty_key_plural = relation_repository.key_plural();
-        format_ident!("{}_{}_{}_by_{}_{}", op, relation_snake, key_plural, relation_ty_singular, relation_ty_key_plural)
+        format_ident!(
+            "{}_{}_{}_by_{}_{}",
+            op,
+            relation_snake,
+            key_plural,
+            relation_ty_singular,
+            relation_ty_key_plural
+        )
     }
 
     pub fn load_in_single(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
@@ -1936,7 +2089,10 @@ pub mod shared {
         }
     }
 
-    pub fn load_in_multiple(repository: &RepositoryInput, relation: &RelationInput) -> TokenStream2 {
+    pub fn load_in_multiple(
+        repository: &RepositoryInput,
+        relation: &RelationInput,
+    ) -> TokenStream2 {
         let ty = repository.ty();
         let singular = repository.singular();
         let plural = repository.plural();

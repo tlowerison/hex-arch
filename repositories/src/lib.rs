@@ -22,10 +22,7 @@ impl<K, E: AsRef<K>, R> AsRef<K> for Entity<std::sync::Arc<E>, R> {
 
 impl<E, R> From<(E, R)> for Entity<E, R> {
     fn from((value, relations): (E, R)) -> Self {
-        Entity {
-            value,
-            relations,
-        }
+        Entity { value, relations }
     }
 }
 
@@ -56,7 +53,7 @@ pub trait Transactional {
 
 pub fn dupe<T: Clone>((value, count): (T, usize)) -> Vec<T> {
     if count == 0 {
-        return vec![]
+        return vec![];
     }
     let mut dupes: Vec<T> = Vec::with_capacity(count);
     for _ in 0..count - 1 {
@@ -67,7 +64,10 @@ pub fn dupe<T: Clone>((value, count): (T, usize)) -> Vec<T> {
 }
 
 pub fn dupe_iter<T: Clone>((value, count): (T, usize)) -> DupeIter<T> {
-    DupeIter { value: Some(value), count }
+    DupeIter {
+        value: Some(value),
+        count,
+    }
 }
 
 pub struct DupeIter<T> {
@@ -115,8 +115,13 @@ impl<T> From<Vec<T>> for PreSortValues<T> {
 impl<T: std::fmt::Debug> PreSortValues<T> {
     /// Assumes unique_pre_sort_values only contains unique values but handles the case in which
     /// the map as_key is not injective (i.e. there are multiple unique values with the same key).
-    pub fn from_unique_values_and_keys<K: std::fmt::Debug + Eq + Hash>(unique_pre_sort_values: Vec<T>, keys: &Vec<K>, as_key: impl Fn(&T) -> &K) -> Self {
-        let mut key_map: HashMap<&K, Vec<usize>> = HashMap::with_capacity(unique_pre_sort_values.len());
+    pub fn from_unique_values_and_keys<K: std::fmt::Debug + Eq + Hash>(
+        unique_pre_sort_values: Vec<T>,
+        keys: &Vec<K>,
+        as_key: impl Fn(&T) -> &K,
+    ) -> Self {
+        let mut key_map: HashMap<&K, Vec<usize>> =
+            HashMap::with_capacity(unique_pre_sort_values.len());
         for (index, value) in unique_pre_sort_values.iter().enumerate() {
             let key = as_key(&value);
             if key_map.contains_key(key) {
@@ -146,8 +151,13 @@ impl<T: std::fmt::Debug> PreSortValues<T> {
         }
     }
 
-    pub fn from_unique_values_and_key_options<K: std::fmt::Debug + Eq + Hash>(unique_pre_sort_values: Vec<T>, keys: &Vec<Option<K>>, as_key: impl Fn(&T) -> &K) -> Self {
-        let mut key_map: HashMap<&K, Vec<usize>> = HashMap::with_capacity(unique_pre_sort_values.len());
+    pub fn from_unique_values_and_key_options<K: std::fmt::Debug + Eq + Hash>(
+        unique_pre_sort_values: Vec<T>,
+        keys: &Vec<Option<K>>,
+        as_key: impl Fn(&T) -> &K,
+    ) -> Self {
+        let mut key_map: HashMap<&K, Vec<usize>> =
+            HashMap::with_capacity(unique_pre_sort_values.len());
         for (index, value) in unique_pre_sort_values.iter().enumerate() {
             let key = as_key(&value);
             if key_map.contains_key(key) {
@@ -187,16 +197,23 @@ impl<T: std::fmt::Debug> PreSortValues<T> {
 
     pub fn len(&self) -> usize {
         if let Some(sort_order) = self.sort_order.as_ref() {
-            sort_order.iter().filter_map(|x| x.as_ref()).collect::<Vec<_>>().len()
+            sort_order
+                .iter()
+                .filter_map(|x| x.as_ref())
+                .collect::<Vec<_>>()
+                .len()
         } else {
             self.unique_pre_sort_values.len()
         }
     }
 
-    pub fn map_and_take<U, V, E: RepositoryError>(self, f: impl FnOnce(Vec<T>) -> (Vec<U>, V)) -> Result<(PreSortValues<U>, V), E> {
+    pub fn map_and_take<U, V, E: RepositoryError>(
+        self,
+        f: impl FnOnce(Vec<T>) -> (Vec<U>, V),
+    ) -> Result<(PreSortValues<U>, V), E> {
         if let Some(sort_order) = self.sort_order.as_ref() {
             if sort_order.iter().any(|index| index.is_none()) {
-                return Err(E::not_found())
+                return Err(E::not_found());
             }
         }
 
@@ -211,7 +228,10 @@ impl<T: std::fmt::Debug> PreSortValues<T> {
         ))
     }
 
-    pub fn try_map_and_take<U, V>(self, f: impl FnOnce(Vec<T>) -> (Vec<U>, V)) -> (PreSortValues<U>, V) {
+    pub fn try_map_and_take<U, V>(
+        self,
+        f: impl FnOnce(Vec<T>) -> (Vec<U>, V),
+    ) -> (PreSortValues<U>, V) {
         let (unique_pre_sort_values, v) = f(self.unique_pre_sort_values);
         (
             PreSortValues {
@@ -234,7 +254,8 @@ impl<T: std::fmt::Debug> PreSortValues<T> {
 
 impl<T, U> PreSortValues<(T, U)> {
     pub fn take_right(self) -> (PreSortValues<T>, Vec<U>) {
-        let (unique_pre_sort_values, right_values): (Vec<_>, Vec<_>) = self.unique_pre_sort_values.into_iter().unzip();
+        let (unique_pre_sort_values, right_values): (Vec<_>, Vec<_>) =
+            self.unique_pre_sort_values.into_iter().unzip();
         (
             PreSortValues {
                 unique_pre_sort_value_counts: self.unique_pre_sort_value_counts,
@@ -263,25 +284,42 @@ impl<T: std::fmt::Debug, I: Iterator<Item = T>> PreSortValuesIter<I> {
         }
     }
 
-    pub fn map_and_take<U, V, E: RepositoryError>(self, f: impl FnOnce(Vec<T>) -> (Vec<U>, V)) -> Result<(PreSortValues<U>, V), E> {
+    pub fn map_and_take<U, V, E: RepositoryError>(
+        self,
+        f: impl FnOnce(Vec<T>) -> (Vec<U>, V),
+    ) -> Result<(PreSortValues<U>, V), E> {
         self.collect().map_and_take(f)
     }
 
-    pub fn try_map_and_take<U, V>(self, f: impl FnOnce(Vec<T>) -> (Vec<U>, V)) -> (PreSortValues<U>, V) {
+    pub fn try_map_and_take<U, V>(
+        self,
+        f: impl FnOnce(Vec<T>) -> (Vec<U>, V),
+    ) -> (PreSortValues<U>, V) {
         self.collect().try_map_and_take(f)
     }
 
     pub fn zip<U>(self, values: Vec<U>) -> PreSortValuesIter<Zip<I, IntoIter<U>>> {
         PreSortValuesIter {
-            unique_pre_sort_values_iter: izip!(self.unique_pre_sort_values_iter, values.into_iter()),
+            unique_pre_sort_values_iter: izip!(
+                self.unique_pre_sort_values_iter,
+                values.into_iter()
+            ),
             unique_pre_sort_value_counts: self.unique_pre_sort_value_counts,
             sort_order: self.sort_order,
         }
     }
 
-    pub fn zip_with<U, V, F: Fn((T, U)) -> V>(self, values: Vec<U>, f: F) -> PreSortValuesIter<Map<Zip<I, IntoIter<U>>, F>> {
+    pub fn zip_with<U, V, F: Fn((T, U)) -> V>(
+        self,
+        values: Vec<U>,
+        f: F,
+    ) -> PreSortValuesIter<Map<Zip<I, IntoIter<U>>, F>> {
         PreSortValuesIter {
-            unique_pre_sort_values_iter: izip!(self.unique_pre_sort_values_iter, values.into_iter()).map(f),
+            unique_pre_sort_values_iter: izip!(
+                self.unique_pre_sort_values_iter,
+                values.into_iter()
+            )
+            .map(f),
             unique_pre_sort_value_counts: self.unique_pre_sort_value_counts,
             sort_order: self.sort_order,
         }
@@ -297,16 +335,16 @@ impl<T: std::fmt::Debug, I: Iterator<Item = T>> PreSortValuesIter<I> {
                     self.unique_pre_sort_values_iter,
                     unique_pre_sort_value_counts.into_iter(),
                 )
-                    .map(dupe)
-                    .collect();
+                .map(dupe)
+                .collect();
 
                 return sort_order
                     .into_iter()
-                    .map(|index|
+                    .map(|index| {
                         index
                             .map(|index| duped_unique_pre_sort_values[index].pop().unwrap())
                             .ok_or_else(E::not_found)
-                    )
+                    })
                     .collect();
             }
         }
@@ -323,12 +361,14 @@ impl<T: std::fmt::Debug, I: Iterator<Item = T>> PreSortValuesIter<I> {
                     self.unique_pre_sort_values_iter,
                     unique_pre_sort_value_counts.into_iter(),
                 )
-                    .map(dupe)
-                    .collect();
+                .map(dupe)
+                .collect();
 
                 return sort_order
                     .into_iter()
-                    .map(|index| index.map(|index| duped_unique_pre_sort_values[index].pop().unwrap()))
+                    .map(|index| {
+                        index.map(|index| duped_unique_pre_sort_values[index].pop().unwrap())
+                    })
                     .collect();
             }
         }

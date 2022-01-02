@@ -1,6 +1,6 @@
 [package]
 name = "hex_arch_cache"
-version = "0.3.18"
+version = "0.3.23"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 description = "In memory cache which stays synchronized across server instances -- expected use of policies is low write volume / high read volume, hence in-memory caches will be useful for each server instance. This package is meant to wrap behavior around cache functionality to keep them correctly up to date."

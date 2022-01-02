@@ -1,4 +1,5 @@
-#[macro_use] extern crate quote;
+#[macro_use]
+extern crate quote;
 extern crate proc_macro;
 
 use itertools::Itertools;
@@ -25,7 +26,15 @@ fn entity_inner_ty(ty: Type) -> Type {
         Type::Array(type_array) => entity_inner_ty(*type_array.elem),
         Type::Paren(type_paren) => entity_inner_ty(*type_paren.elem),
         Type::Path(type_path) => {
-            match type_path.path.segments.clone().into_iter().last().unwrap().arguments {
+            match type_path
+                .path
+                .segments
+                .clone()
+                .into_iter()
+                .last()
+                .unwrap()
+                .arguments
+            {
                 PathArguments::AngleBracketed(angle_bracketed_generic_arguments) => {
                     let mut ty: Option<Type> = None;
                     let mut ty_arg_count = 0;
@@ -34,8 +43,8 @@ fn entity_inner_ty(ty: Type) -> Type {
                             syn::GenericArgument::Type(arg_ty) => {
                                 ty = Some(arg_ty);
                                 ty_arg_count += 1;
-                            },
-                            _ => {},
+                            }
+                            _ => {}
                         }
                     }
 
@@ -43,10 +52,10 @@ fn entity_inner_ty(ty: Type) -> Type {
                         panic!("`graphql_load` attribute cannot be placed on types with less or more than one generic type parameters (i.e. excluding lifetime parameters, etc.)");
                     }
                     entity_inner_ty(ty.unwrap())
-                },
+                }
                 _ => Type::Path(type_path),
             }
-        },
+        }
         Type::Reference(type_reference) => entity_inner_ty(*type_reference.elem),
         Type::Slice(type_slice) => entity_inner_ty(*type_slice.elem),
         _ => panic!("`graphql_load` cannot infer relation type"),
@@ -75,7 +84,11 @@ pub fn derive_graphql_load(tokens: TokenStream) -> TokenStream {
         _ => panic!("GraphQLLoad can only be derived on struct data types at this time."),
     };
 
-    let stringified_field_names: Vec<TokenStream2> = field_names.clone().into_iter().map(|x| format!("\"{}\"", x).parse().unwrap()).collect();
+    let stringified_field_names: Vec<TokenStream2> = field_names
+        .clone()
+        .into_iter()
+        .map(|x| format!("\"{}\"", x).parse().unwrap())
+        .collect();
 
     let tokens = quote! {
         interactors_paste! {

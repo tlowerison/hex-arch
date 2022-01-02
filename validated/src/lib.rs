@@ -1,4 +1,5 @@
-#[macro_use] extern crate quote;
+#[macro_use]
+extern crate quote;
 extern crate proc_macro;
 
 use itertools::Itertools;
@@ -23,7 +24,14 @@ fn is_matching_attr(attr: &Attribute) -> bool {
     false
 }
 
-fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Ident, should_access_draft_instance: bool) -> ((Vec<Ident>, Vec<TokenStream2>), (Vec<Ident>, Vec<Type>, Vec<Vec<Attribute>>)) {
+fn named_fields_util(
+    fields_named: &syn::FieldsNamed,
+    draft_instance_name: &Ident,
+    should_access_draft_instance: bool,
+) -> (
+    (Vec<Ident>, Vec<TokenStream2>),
+    (Vec<Ident>, Vec<Type>, Vec<Vec<Attribute>>),
+) {
     let field_name_type_attrs_and_inclusion_in_drafts: Vec<_> = fields_named
         .named
         .iter()
@@ -36,39 +44,48 @@ fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Iden
             }
             (
                 field.ident.as_ref().unwrap().clone(),
-                field.attrs.clone().into_iter().filter(|attr| !is_matching_attr(&attr)).collect::<Vec<_>>(),
+                field
+                    .attrs
+                    .clone()
+                    .into_iter()
+                    .filter(|attr| !is_matching_attr(&attr))
+                    .collect::<Vec<_>>(),
                 field.ty.clone(),
                 include_in_signature,
             )
         })
         .collect();
 
-    let (field_names, field_instances): (Vec<_>, Vec<_>) = field_name_type_attrs_and_inclusion_in_drafts
-        .iter()
-        .map(|(field_name, _, field_type, inclusion_in_draft)| (
-            field_name.clone(),
-            if *inclusion_in_draft {
-                if should_access_draft_instance {
-                    quote! { #draft_instance_name.#field_name }
-                } else {
-                    quote! { #field_name }
-                }
-            } else {
-                quote! { <#field_type>::default() }
-            }
-        ))
-        .unzip();
+    let (field_names, field_instances): (Vec<_>, Vec<_>) =
+        field_name_type_attrs_and_inclusion_in_drafts
+            .iter()
+            .map(|(field_name, _, field_type, inclusion_in_draft)| {
+                (
+                    field_name.clone(),
+                    if *inclusion_in_draft {
+                        if should_access_draft_instance {
+                            quote! { #draft_instance_name.#field_name }
+                        } else {
+                            quote! { #field_name }
+                        }
+                    } else {
+                        quote! { <#field_type>::default() }
+                    },
+                )
+            })
+            .unzip();
 
-    let (draft_field_names, draft_field_types, draft_field_attrs): (Vec<_>, Vec<_>, Vec<_>) = field_name_type_attrs_and_inclusion_in_drafts
-        .iter()
-        .filter_map(|(field_name, attrs, field_type, inclusion_in_draft)|
-            if *inclusion_in_draft {
-                Some((field_name.clone(), field_type.clone(), attrs.clone()))
-            } else {
-                None
-            }
-        )
-        .multiunzip();
+    let (draft_field_names, draft_field_types, draft_field_attrs): (Vec<_>, Vec<_>, Vec<_>) =
+        field_name_type_attrs_and_inclusion_in_drafts
+            .iter()
+            .filter_map(|(field_name, attrs, field_type, inclusion_in_draft)| {
+                if *inclusion_in_draft {
+                    Some((field_name.clone(), field_type.clone(), attrs.clone()))
+                } else {
+                    None
+                }
+            })
+            .multiunzip();
 
     (
         (field_names, field_instances),
@@ -76,7 +93,9 @@ fn named_fields_util(fields_named: &syn::FieldsNamed, draft_instance_name: &Iden
     )
 }
 
-fn unnamed_fields_util(fields_unnamed: &syn::FieldsUnnamed) -> (Vec<Type>, Vec<usize>, Vec<Vec<Attribute>>) {
+fn unnamed_fields_util(
+    fields_unnamed: &syn::FieldsUnnamed,
+) -> (Vec<Type>, Vec<usize>, Vec<Vec<Attribute>>) {
     let (field_types, draft_field_attrs): (Vec<_>, Vec<_>) = fields_unnamed
         .unnamed
         .iter()
@@ -86,7 +105,15 @@ fn unnamed_fields_util(fields_unnamed: &syn::FieldsUnnamed) -> (Vec<Type>, Vec<u
                     panic!("generate_valid attribute cannot be attached to unnamed fields");
                 }
             }
-            (field.ty.clone(), field.attrs.clone().into_iter().filter(|attr| !is_matching_attr(&attr)).collect::<Vec<_>>())
+            (
+                field.ty.clone(),
+                field
+                    .attrs
+                    .clone()
+                    .into_iter()
+                    .filter(|attr| !is_matching_attr(&attr))
+                    .collect::<Vec<_>>(),
+            )
         })
         .unzip();
 
@@ -140,9 +167,10 @@ pub fn validated(item: TokenStream) -> TokenStream {
                         }
                     }
                 }
-            },
+            }
             syn::Fields::Unnamed(fields_unnamed) => {
-                let (field_types, indices, draft_field_attrs) = unnamed_fields_util(&fields_unnamed);
+                let (field_types, indices, draft_field_attrs) =
+                    unnamed_fields_util(&fields_unnamed);
                 quote! {
                     #[derive(Clone, Debug)]
                     pub struct #draft_name(
@@ -170,7 +198,7 @@ pub fn validated(item: TokenStream) -> TokenStream {
                         }
                     }
                 }
-            },
+            }
             syn::Fields::Unit => {
                 quote! {
                     #[derive(Clone, Debug)]
@@ -190,7 +218,7 @@ pub fn validated(item: TokenStream) -> TokenStream {
                         }
                     }
                 }
-            },
+            }
         },
         syn::Data::Enum(data_enum) => {
             let (variant_idents, variant_tokens): (Vec<_>, Vec<_>) = data_enum.variants
@@ -227,7 +255,13 @@ pub fn validated(item: TokenStream) -> TokenStream {
                 ))
                 .unzip();
 
-            let (draft_defs, draft_expansions, draft_instances, expansions, instances): (Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>) = variant_tokens.into_iter().multiunzip();
+            let (draft_defs, draft_expansions, draft_instances, expansions, instances): (
+                Vec<_>,
+                Vec<_>,
+                Vec<_>,
+                Vec<_>,
+                Vec<_>,
+            ) = variant_tokens.into_iter().multiunzip();
             quote! {
                 #[derive(Clone, Debug)]
                 pub enum #draft_name {
@@ -252,7 +286,7 @@ pub fn validated(item: TokenStream) -> TokenStream {
                     }
                 }
             }
-        },
+        }
         syn::Data::Union(_) => panic!("TryNew is not supported for union data types"),
     };
 

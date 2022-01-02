@@ -1,6 +1,6 @@
 [package]
 name = "hex_arch"
-version = "0.3.22"
+version = "0.3.23"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
@@ -14,7 +14,7 @@ hex_arch_interactors = { path = "./interactors", optional = true }
 hex_arch_repositories = { path = "./repositories", optional = true }
 hex_arch_validated = { path = "./validated", optional = true }
 indexmap = { version = "1.7.0", optional = true }
-itertools = "0.10.1"
+itertools = "0.10.3"
 lazy_static = "1.4.0"
 paste = "1.0.5"
 
