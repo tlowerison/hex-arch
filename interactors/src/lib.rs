@@ -1,5 +1,11 @@
+#![allow(incomplete_features)]
+#![feature(specialization)]
+
 #[macro_use]
 extern crate cfg_if;
+
+#[macro_use]
+extern crate serde_with;
 
 pub use convert_case as interactors_convert_case;
 pub use paste::paste as interactors_paste;
@@ -20,11 +26,36 @@ cfg_if! {
     }
 }
 
+
+#[serde_as]
 #[derive(Clone, Debug, Serialize)]
 pub enum InteractorError<E> {
+    Entity(EntityError),
     InvalidInput(E),
-    Unauthorized,
     Other,
+    Unauthorized,
+}
+
+impl<E> std::fmt::Display for InteractorError<E> {
+    default fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            InteractorError::Entity(err) => write!(f, "{}", err),
+            InteractorError::InvalidInput(_) => write!(f, "Invalid input"),
+            InteractorError::Other => write!(f, "Internal server error"),
+            InteractorError::Unauthorized => write!(f, "Unauthorized"),
+        }
+    }
+}
+
+impl<E: std::fmt::Display> std::fmt::Display for InteractorError<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            InteractorError::Entity(err) => write!(f, "{}", err),
+            InteractorError::InvalidInput(err) => write!(f, "{}", err),
+            InteractorError::Other => write!(f, "Internal server error"),
+            InteractorError::Unauthorized => write!(f, "Unauthorized"),
+        }
+    }
 }
 
 impl<E> Default for InteractorError<E> {
@@ -40,16 +71,11 @@ impl<E> InteractorError<E> {
 
     pub fn status(&self) -> u16 {
         match self {
+            InteractorError::Entity(_) => 422,
             InteractorError::InvalidInput(_) => 422,
-            InteractorError::Unauthorized => 401,
             InteractorError::Other => 500,
+            InteractorError::Unauthorized => 401,
         }
-    }
-}
-
-impl<E: std::fmt::Debug> std::fmt::Display for InteractorError<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{:#?}", self)
     }
 }
 
@@ -60,8 +86,11 @@ impl<E> From<DieselError> for InteractorError<E> {
 }
 
 impl<E> From<EntityError> for InteractorError<E> {
-    fn from(_: EntityError) -> Self {
-        InteractorError::Other
+    fn from(err: EntityError) -> Self {
+        if let EntityError::Poison = err {
+            return InteractorError::Other
+        }
+        InteractorError::Entity(err)
     }
 }
 

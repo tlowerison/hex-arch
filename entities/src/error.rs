@@ -1,7 +1,9 @@
 use repositories::RepositoryError;
 use std::sync::PoisonError;
+use serde::Serialize;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[serde_as]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum EntityError {
     ForeignKeyViolation {
         message: String,
@@ -29,6 +31,18 @@ pub enum EntityError {
         column_name: Option<String>,
         constraint_name: Option<String>,
     },
+}
+
+impl std::fmt::Display for EntityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            EntityError::ForeignKeyViolation { message, .. } => write!(f, "{}", message),
+            EntityError::NotFound => write!(f, "not found"),
+            EntityError::Other { message, .. } => write!(f, "{}", message),
+            EntityError::Poison => write!(f, "Internal server error"),
+            EntityError::UniqueViolation { message, .. } => write!(f, "{}", message),
+        }
+    }
 }
 
 impl RepositoryError for EntityError {

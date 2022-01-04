@@ -1,6 +1,6 @@
 [package]
 name = "hex_arch_entities"
-version = "0.3.23"
+version = "0.3.24"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
@@ -9,6 +9,8 @@ cfg-if = "1.0.0"
 opt_diesel = { version = "1.4.8", package = "diesel", optional = true }
 paste = "1.0.5"
 repositories = { path = "../repositories", package = "hex_arch_repositories" }
+serde = { version = "1.0", features = ["derive"] }
+serde_with = "1.11.0"
 
 [features]
 default = []

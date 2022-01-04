@@ -1,6 +1,9 @@
 #[macro_use]
 extern crate cfg_if;
 
+#[macro_use]
+extern crate serde_with;
+
 mod as_enum;
 mod dependent_fields;
 mod error;

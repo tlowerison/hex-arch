@@ -1,6 +1,6 @@
 [package]
 name = "hex_arch_interactors"
-version = "0.3.23"
+version = "0.3.24"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 
@@ -14,6 +14,7 @@ paste = "1.0.5"
 proc_macros = { path = "./proc-macros", package = "hex_arch_interactors_proc_macros" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.64"
+serde_with = "1.11.0"
 
 [features]
 default = []
