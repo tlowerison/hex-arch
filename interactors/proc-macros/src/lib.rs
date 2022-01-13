@@ -93,12 +93,18 @@ pub fn derive_graphql_load(tokens: TokenStream) -> TokenStream {
     let tokens = quote! {
         interactors_paste! {
             impl GraphQLLoad for #ident {
-                type LoadRelations = entities::[<Load #ident Relations>];
-                fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(Self::LoadRelations) -> Self::LoadRelations> {
+                type Input = entities::[<DynLoad #ident Relations>];
+                type Output = entities::[<DynLoad #ident Relations>];
+
+                fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(Self::Input) -> Self::Output> {
                     use interactors_convert_case::Casing;
                     use interactors_juniper::LookAheadMethods;
 
-                    #( let mut [<load_in_ #field_entity_relation_snakes>]: Option<Box<dyn Send + Fn(<#field_inner_entity_tys as GraphQLLoad>::LoadRelations) -> <#field_inner_entity_tys as GraphQLLoad>::LoadRelations>> = None; )*
+                    #(
+                        let mut [<load_in_ #field_entity_relation_snakes>]: Option<
+                            Box<dyn Send + Fn(<#field_inner_entity_tys as GraphQLLoad>::Input) -> <#field_inner_entity_tys as GraphQLLoad>::Output>
+                        > = None;
+                    )*
                     for child in selection.children().iter() {
                         match &*child.field_name().to_case(interactors_convert_case::Case::Snake) {
                             #(

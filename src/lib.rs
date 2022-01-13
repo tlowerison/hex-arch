@@ -28,3 +28,4 @@ pub use hex_arch_validated::*;
 pub use itertools::{izip as hex_arch_izip, Itertools as HexArchItertools};
 pub use lazy_static::lazy_static as hex_arch_lazy_static;
 pub use paste::paste as hex_arch_paste;
+pub use std::ops::Deref as HexArchDeref;

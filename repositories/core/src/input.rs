@@ -28,6 +28,7 @@ pub enum Syncability {
 #[derive(Clone)]
 pub struct RepositoriesInput {
     pub name: Option<Ident>,
+    pub load_relations_trait_mod: Ident,
     pub repositories: Vec<RepositoryInput>,
 }
 
@@ -60,6 +61,7 @@ pub struct RepositoryInput {
 pub struct RelationIdents {
     pub ty: Ident,
     pub snake: Ident,
+    pub pascal: Ident,
     pub plural: Ident,
 }
 
@@ -197,6 +199,10 @@ impl Parse for RepositoriesInput {
             in_brace.parse_terminated(RepositoryInput::parse)?;
 
         let mut input = RepositoriesInput {
+            load_relations_trait_mod: name
+                .as_ref()
+                .map(|name| format_ident!("{}_load_relation_traits", format_ident!("{}", format!("{}", name).to_case(Case::Snake))))
+                .unwrap_or(format_ident!("load_relation_traits")),
             name,
             repositories: repositories
                 .into_iter()
@@ -292,6 +298,7 @@ impl Parse for RelationInput {
                     Cardinality::One | Cardinality::OneOrNone => format_ident!("{}s", snake_ident),
                     _ => snake_ident.clone(),
                 }),
+                pascal: format_ident!("{}", format!("{}", snake_ident).to_case(Case::Pascal)),
                 snake: snake_ident,
             },
             cardinality,
@@ -390,6 +397,13 @@ impl RepositoryInput {
             .collect()
     }
 
+    pub fn relation_pascals(&self) -> Vec<&Ident> {
+        self.relations
+            .iter()
+            .map(|relation| relation.pascal())
+            .collect()
+    }
+
     pub fn sync_ptr(&self) -> TokenStream2 {
         self.syncability.as_ref().unwrap().sync_ptr()
     }
@@ -429,6 +443,10 @@ impl RelationInput {
 
     pub fn snake(&self) -> &Ident {
         &self.idents.snake
+    }
+
+    pub fn pascal(&self) -> &Ident {
+        &self.idents.pascal
     }
 
     pub fn plural(&self) -> &Ident {

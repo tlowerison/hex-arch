@@ -20,8 +20,9 @@ cfg_if! {
         pub use juniper as interactors_juniper;
 
         pub trait GraphQLLoad {
-            type LoadRelations: Sized;
-            fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(Self::LoadRelations) -> Self::LoadRelations>;
+            type Input;
+            type Output;
+            fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(Self::Input) -> Self::Output>;
         }
     }
 }

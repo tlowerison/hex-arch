@@ -68,7 +68,7 @@ pub mod read_repositories {
                     }
                 } else {
                     let ty_entity = ty_entity(repository);
-                    let load_ty_relations = load_ty_relations(repository);
+                    let load_ty_relations = load_ty_relations(repository, input);
                     let loaded_ty_relations = loaded_ty_relations(repository);
                     let get_ty_singular_builder =
                         builders::get_ty_singular_builder(repository, input);
@@ -99,8 +99,24 @@ pub mod read_repositories {
             })
             .collect();
 
+        let load_ty_relation_traits: Vec<_> = input
+            .repositories
+            .iter()
+            .map(load_ty_relation_trait)
+            .collect();
+
+        let load_relations_trait_mod = &input.load_relations_trait_mod;
+
         quote! {
-            #(#read_repositories)*
+            hex_arch_paste! {
+                pub mod #load_relations_trait_mod {
+                    use super::*;
+
+                    #(#load_ty_relation_traits)*
+                }
+
+                #(#read_repositories)*
+            }
         }
     }
 
@@ -114,35 +130,266 @@ pub mod read_repositories {
         }
     }
 
-    fn load_ty_relations(repository: &RepositoryInput) -> TokenStream2 {
+    fn load_ty_relation_trait(repository: &RepositoryInput) -> TokenStream2 {
         let ty = repository.ty();
         let relation_tys = repository.relation_tys();
         let relation_snakes = repository.relation_snakes();
+        let relation_pascals = repository.relation_pascals();
 
         quote! {
             hex_arch_paste! {
-                #[derive(Clone, Debug)]
-                pub struct [<Load #ty Relations>] {
-                    #(pub #relation_snakes: Option<Box<[<Load #relation_tys Relations>]>>),*
+                pub trait [<Load #ty RelationsTraitRef>] {
+                    type WhereExprRef<'a>;
+                    #(
+                        type [<Load #relation_pascals Relations>]: [<Load #relation_tys RelationsTraitRef>];
+                    )*
+
+                    fn should_load(&self) -> bool;
+                    fn where_expr(&self) -> Option<Self::WhereExprRef<'_>>;
+                    #(
+                        fn #relation_snakes(&self) -> Option<&Self::[<Load #relation_pascals Relations>]>;
+                    )*
                 }
 
-                impl Default for [<Load #ty Relations>] {
-                    fn default() -> Self {
-                        [<Load #ty Relations>] {
-                            #(#relation_snakes: None),*
-                        }
+                pub trait [<Load #ty RelationsTrait>] {
+
+                    type WithWhere<NewWhereExpr>;
+                    #(
+                        type [<Load #relation_pascals Relations>]: [<Load #relation_tys RelationsTrait>];
+                        type [<WithLoad #relation_pascals Relations>]<LR: [<Load #relation_tys RelationsTrait>]>;
+                    )*
+
+                    fn as_dyn(self) -> Option<[<DynLoad #ty Relations>]>;
+
+                    fn r#where<NewWhereExpr>(self, where_expr: NewWhereExpr) -> Self::WithWhere<NewWhereExpr>;
+
+                    #(
+                        fn [<load_ #relation_snakes>](self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]>;
+
+                        fn [<load_ #relation_snakes _with>]<LR: [<Load #relation_tys RelationsTrait>]>(
+                            self,
+                            with_fn: impl FnOnce(Self::[<Load #relation_pascals Relations>]) -> LR,
+                        ) -> Self::[<WithLoad #relation_pascals Relations>]<LR>;
+                    )*
+                }
+
+                impl [<Load #ty RelationsTraitRef>] for () {
+                    type WhereExprRef<'a> = &'a ();
+                    #(
+                        type [<Load #relation_pascals Relations>] = ();
+                    )*
+
+                    fn should_load(&self) -> bool { false }
+                    fn where_expr(&self) -> Option<Self::WhereExprRef<'_>> { None }
+                    #(
+                        fn #relation_snakes(&self) -> Option<&Self::[<Load #relation_pascals Relations>]> { None }
+                    )*
+                }
+
+                impl [<Load #ty RelationsTrait>] for () {
+
+                    type WithWhere<NewWhereExpr> = ();
+                    #(
+                        type [<Load #relation_pascals Relations>] = ();
+                        type [<WithLoad #relation_pascals Relations>]<LR: [<Load #relation_tys RelationsTrait>]> = ();
+                    )*
+
+                    fn as_dyn(self) -> Option<[<DynLoad #ty Relations>]> {
+                        None
+                    }
+
+                    fn r#where<NewWhereExpr>(self, _: NewWhereExpr) -> Self::WithWhere<NewWhereExpr> { self }
+
+                    #(
+                        fn [<load_ #relation_snakes>](self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]> { self }
+
+                        fn [<load_ #relation_snakes _with>]<LR: [<Load #relation_tys RelationsTrait>]>(
+                            self,
+                            _: impl FnOnce(Self::[<Load #relation_pascals Relations>]) -> LR,
+                        ) -> Self::[<WithLoad #relation_pascals Relations>]<LR> { self }
+                    )*
+                }
+            }
+        }
+    }
+
+    fn load_ty_relations(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
+        let ty = repository.ty();
+        let relation_tys = repository.relation_tys();
+        let relation_snakes = repository.relation_snakes();
+        let relation_pascals = repository.relation_pascals();
+        let load_relations_trait_mod = &input.load_relations_trait_mod;
+
+        let other_relation_snakes: Vec<Vec<_>> = relation_snakes
+            .iter()
+            .map(|relation_snake|
+                relation_snakes
+                    .iter()
+                    .filter(|x| *x != relation_snake)
+                    .collect()
+            )
+            .collect();
+
+        let replaced_sub_relations: Vec<Vec<_>> = relation_pascals
+            .iter()
+            .map(|relation_pascal|
+                relation_pascals
+                    .iter()
+                    .map(|x| if x == relation_pascal { format_ident!("LR") } else { format_ident!("Load{}Relations", x) })
+                    .collect()
+            )
+            .collect();
+
+        quote! {
+            hex_arch_paste! {
+                #[derive(Clone, Debug, Default)]
+                pub struct [<StaticLoad #ty Relations>]<WhereExpr = (), #([<Load #relation_pascals Relations>] = ()),*> {
+                    pub where_expr: Option<WhereExpr>,
+                    #(pub #relation_snakes: [<Load #relation_pascals Relations>],)*
+                }
+
+                impl From<()> for [<StaticLoad #ty Relations>] {
+                    fn from(_: ()) -> [<StaticLoad #ty Relations>] {
+                        [<StaticLoad #ty Relations>]::default()
                     }
                 }
 
-                impl [<Load #ty Relations>] {
+                impl<
+                    WhereExpr: 'static,
+                    #([<Load #relation_pascals Relations>]: #load_relations_trait_mod::[<Load #relation_tys RelationsTraitRef>] + 'static),*
+                > #load_relations_trait_mod::[<Load #ty RelationsTraitRef>] for [<StaticLoad #ty Relations>]<WhereExpr, #([<Load #relation_pascals Relations>]),*> {
+
+                    type WhereExprRef<'a> = &'a WhereExpr;
                     #(
-                        pub fn [<load_ #relation_snakes>](mut self) -> [<Load #ty Relations>] {
-                            self.#relation_snakes = Some(Box::new([<Load #relation_tys Relations>]::default()));
+                        type [<Load #relation_pascals Relations>] = [<Load #relation_pascals Relations>];
+                    )*
+
+                    fn should_load(&self) -> bool { true }
+
+                    fn where_expr(&self) -> Option<Self::WhereExprRef<'_>> {
+                        self.where_expr.as_ref()
+                    }
+
+                    #(
+                        fn #relation_snakes(&self) -> Option<&Self::[<Load #relation_pascals Relations>]> {
+                            use #load_relations_trait_mod::*;
+
+                            if self.#relation_snakes.should_load() {
+                                Some(&self.#relation_snakes)
+                            } else {
+                                None
+                            }
+                        }
+                    )*
+                }
+
+                impl<
+                    WhereExpr: 'static,
+                    #(
+                        [<Load #relation_pascals Relations>]: Into<[<StaticLoad #relation_tys Relations>]> + #load_relations_trait_mod::[<Load #relation_tys RelationsTrait>] + 'static
+                    ),*
+                > #load_relations_trait_mod::[<Load #ty RelationsTrait>] for [<StaticLoad #ty Relations>]<WhereExpr, #([<Load #relation_pascals Relations>]),*> {
+
+                    type WithWhere<NewWhereExpr> = [<StaticLoad #ty Relations>]<NewWhereExpr, #([<Load #relation_pascals Relations>]),*>;
+                    #(
+                        type [<Load #relation_pascals Relations>] = [<StaticLoad #relation_tys Relations>];
+                        type [<WithLoad #relation_pascals Relations>]<LR: #load_relations_trait_mod::[<Load #relation_tys RelationsTrait>]> = [<StaticLoad #ty Relations>]<
+                            WhereExpr,
+                            #(#replaced_sub_relations),*
+                        >;
+                    )*
+
+                    fn as_dyn(self) -> Option<[<DynLoad #ty Relations>]> {
+                        Some([<DynLoad #ty Relations>] {
+                            #(#relation_snakes: self.#relation_snakes.as_dyn().map(Box::new)),*
+                        })
+                    }
+
+                    fn r#where<NewWhereExpr>(self, where_expr: NewWhereExpr) -> Self::WithWhere<NewWhereExpr> {
+                        [<StaticLoad #ty Relations>] {
+                            where_expr: Some(where_expr),
+                            #(#relation_snakes: self.#relation_snakes),*
+                        }
+                    }
+
+                    #(
+                        fn [<load_ #relation_snakes>](self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]> {
+                            [<StaticLoad #ty Relations>] {
+                                where_expr: self.where_expr,
+                                #relation_snakes: [<StaticLoad #relation_tys Relations>]::default(),
+                                #(#other_relation_snakes: self.#other_relation_snakes),*
+                            }
+                        }
+
+                        fn [<load_ #relation_snakes _with>]<LR: #load_relations_trait_mod::[<Load #relation_tys RelationsTrait>]>(
+                            self,
+                            with_fn: impl FnOnce(Self::[<Load #relation_pascals Relations>]) -> LR,
+                        ) -> Self::[<WithLoad #relation_pascals Relations>]<LR> {
+                            [<StaticLoad #ty Relations>] {
+                                where_expr: self.where_expr,
+                                #relation_snakes: with_fn(self.#relation_snakes.into()),
+                                #(#other_relation_snakes: self.#other_relation_snakes,)*
+                            }
+                        }
+                    )*
+                }
+
+                #[derive(Clone, Debug, Default)]
+                pub struct [<DynLoad #ty Relations>] {
+                    #(pub #relation_snakes: Option<Box<[<DynLoad #relation_tys Relations>]>>),*
+                }
+
+                impl #load_relations_trait_mod::[<Load #ty RelationsTraitRef>] for [<DynLoad #ty Relations>] {
+
+                    type WhereExprRef<'a> = &'a ();
+                    #(
+                        type [<Load #relation_pascals Relations>] = [<DynLoad #relation_tys Relations>];
+                    )*
+
+                    fn should_load(&self) -> bool { true }
+
+                    fn where_expr(&self) -> Option<Self::WhereExprRef<'_>> {
+                        None
+                    }
+
+                    #(
+                        fn #relation_snakes(&self) -> Option<&Self::[<Load #relation_pascals Relations>]> {
+                            self.#relation_snakes.as_ref().map(|x| x.deref())
+                        }
+                    )*
+                }
+
+                impl #load_relations_trait_mod::[<Load #ty RelationsTrait>] for [<DynLoad #ty Relations>] {
+
+                    type WithWhere<NewWhereExpr> = [<DynLoad #ty Relations>];
+                    #(
+                        type [<Load #relation_pascals Relations>] = [<DynLoad #relation_tys Relations>];
+                        type [<WithLoad #relation_pascals Relations>]<LR: #load_relations_trait_mod::[<Load #relation_tys RelationsTrait>]> = [<DynLoad #ty Relations>];
+                    )*
+
+                    fn as_dyn(self) -> Option<[<DynLoad #ty Relations>]> {
+                        Some(self)
+                    }
+
+                    fn r#where<NewWhereExpr>(self, _: NewWhereExpr) -> Self::WithWhere<NewWhereExpr> {
+                        self
+                    }
+
+                    #(
+                        fn [<load_ #relation_snakes>](mut self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]> {
+                            self.#relation_snakes = Some(Box::new([<DynLoad #relation_tys Relations>]::default()));
                             self
                         }
 
-                        pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Load #ty Relations>] {
-                            self.#relation_snakes = Some(Box::new(with_fn([<Load #relation_tys Relations>]::default())));
+                        fn [<load_ #relation_snakes _with>]<LR: #load_relations_trait_mod::[<Load #relation_tys RelationsTrait>]>(
+                            mut self,
+                            with_fn: impl FnOnce(Self::[<Load #relation_pascals Relations>]) -> LR,
+                        ) -> Self::[<WithLoad #relation_pascals Relations>]<LR> {
+                            self.#relation_snakes = with_fn(if let Some(sub_relations) = self.#relation_snakes {
+                                *sub_relations
+                            } else {
+                                [<DynLoad #relation_tys Relations>]::default()
+                            }).as_dyn().map(Box::new);
                             self
                         }
                     )*
@@ -227,7 +474,7 @@ pub mod read_repositories {
             let plural = repository.plural();
             let key_plural = repository.key_plural();
 
-            let get_multiple = get_multiple(repository);
+            let get_multiple = get_multiple(repository, input);
 
             let entity_storage = entity_storage(repository, todo);
 
@@ -255,13 +502,13 @@ pub mod read_repositories {
             let get_by_singles: Vec<_> = inward_relations
                 .iter()
                 .map(|(relation, relation_repository)| {
-                    get_by_single(relation, repository, relation_repository)
+                    get_by_single(relation, repository, relation_repository, input)
                 })
                 .collect();
             let get_by_multiples: Vec<_> = inward_relations
                 .iter()
                 .map(|(relation, relation_repository)| {
-                    get_by_multiple(relation, repository, relation_repository)
+                    get_by_multiple(relation, repository, relation_repository, input)
                 })
                 .collect();
 
@@ -398,11 +645,13 @@ pub mod read_repositories {
             }
         }
 
-        pub fn get_multiple(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn get_multiple(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_snakes = repository.relation_snakes();
             let read_repositories = repository.read_repositories();
+
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
 
             let load_in_multiples: Vec<_> = repository
                 .relations
@@ -412,10 +661,10 @@ pub mod read_repositories {
 
             quote! {
                 hex_arch_paste! {
-                    fn [<get_ #plural>](
+                    fn [<get_ #plural>]<LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]>(
                         &mut self,
                         pre_sort_values: PreSortValues<<Self as [<#ty BaseRepository>]>::Record>,
-                        load_relations: &[<Load #ty Relations>],
+                        load_relations: &LR,
                         client: Self::Client<'_>,
                     ) -> Result<
                         Vec<[<#ty Entity>]>,
@@ -424,13 +673,15 @@ pub mod read_repositories {
                     where
                         Self: #read_repositories
                     {
+                        use #load_relations_trait_mod::*;
+
                         let (pre_sort_values, [<#plural _ptrs>]) = pre_sort_values.map_and_take::<_, _, Self::Error>(|x| self.[<store_ #plural>](x))?;
                         let #plural: Vec<_> = [<#plural _ptrs>].iter().map(|[<#plural _ptr>]| [<#plural _ptr>].deref()).collect();
 
                         let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                         #(
-                            if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                            if let Some(load_relations) = load_relations.#relation_snakes() {
                                 #load_in_multiples
                             }
                         )*
@@ -438,10 +689,10 @@ pub mod read_repositories {
                         Ok(pre_sort_values.into_iter().zip_with(all_loaded_relations, Entity::from).dupe_and_sort::<Self::Error>()?)
                     }
 
-                    fn [<try_get_ #plural>](
+                    fn [<try_get_ #plural>]<LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]>(
                         &mut self,
                         pre_sort_values: PreSortValues<<Self as [<#ty BaseRepository>]>::Record>,
-                        load_relations: &[<Load #ty Relations>],
+                        load_relations: &LR,
                         client: Self::Client<'_>,
                     ) -> Result<
                         Vec<Option<[<#ty Entity>]>>,
@@ -450,13 +701,15 @@ pub mod read_repositories {
                     where
                         Self: #read_repositories
                     {
+                        use #load_relations_trait_mod::*;
+
                         let (pre_sort_values, [<#plural _ptrs>]) = pre_sort_values.try_map_and_take(|x| self.[<store_ #plural>](x));
                         let #plural: Vec<_> = [<#plural _ptrs>].iter().map(|[<#plural _ptr>]| [<#plural _ptr>].deref()).collect();
 
                         let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                         #(
-                            if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                            if let Some(load_relations) = load_relations.#relation_snakes() {
                                 #load_in_multiples
                             }
                         )*
@@ -535,6 +788,7 @@ pub mod read_repositories {
             relation: &RelationInput,
             repository: &RepositoryInput,
             relation_repository: &RepositoryInput,
+            input: &RepositoriesInput,
         ) -> TokenStream2 {
             let ty = repository.ty();
             let singular = repository.singular();
@@ -558,6 +812,8 @@ pub mod read_repositories {
             let get_by_single_fn_name = op_by_single_fn_name("get", relation, relation_repository);
             let load_by_multiple_fn_name =
                 op_by_multiple_fn_name("load", relation, relation_repository);
+
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
 
             let return_ty = match relation.cardinality {
                 Cardinality::One => {
@@ -583,6 +839,8 @@ pub mod read_repositories {
 
             let body = match relation.cardinality {
                 Cardinality::One => quote! { hex_arch_paste! {
+                    use #load_relations_trait_mod::*;
+
                     let adaptor_record = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?
                         .take_right()
                         .0
@@ -596,7 +854,7 @@ pub mod read_repositories {
                     let mut loaded_relations = [<Loaded #ty Relations>]::default();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                        if let Some(load_relations) = load_relations.#relation_snakes() {
                             #relation_load_in_singles
                         }
                     )*
@@ -607,6 +865,8 @@ pub mod read_repositories {
                     })
                 } },
                 Cardinality::OneOrNone => quote! { hex_arch_paste! {
+                    use #load_relations_trait_mod::*;
+
                     let adaptor_record_option = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?
                         .take_right()
                         .0
@@ -624,7 +884,7 @@ pub mod read_repositories {
                     let mut loaded_relations = [<Loaded #ty Relations>]::default();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                        if let Some(load_relations) = load_relations.#relation_snakes() {
                             #relation_load_in_singles
                         }
                     )*
@@ -635,6 +895,8 @@ pub mod read_repositories {
                     }))
                 } },
                 Cardinality::Many => quote! { hex_arch_paste! {
+                    use #load_relations_trait_mod::*;
+
                     let pre_sort_values = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?;
 
                     let (pre_sort_values, parent_keys) = pre_sort_values.take_right();
@@ -645,7 +907,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                        if let Some(load_relations) = load_relations.#relation_snakes() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -667,6 +929,8 @@ pub mod read_repositories {
                     )
                 } },
                 Cardinality::AtLeastOne => quote! { hex_arch_paste! {
+                    use #load_relations_trait_mod::*;
+
                     let pre_sort_values = Self::#load_by_multiple_fn_name(&vec![#relation_singular], client)?;
 
                     if pre_sort_values.len() == 0 {
@@ -681,7 +945,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                        if let Some(load_relations) = load_relations.#relation_snakes() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -706,7 +970,12 @@ pub mod read_repositories {
 
             quote! {
                 hex_arch_paste! {
-                    fn #get_by_single_fn_name(&mut self, #relation_singular: &<Self as [<#relation_ty BaseRepository>]>::Record, load_relations: &[<Load #ty Relations>], client: Self::Client<'_>) -> Result<#return_ty, Self::Error>
+                    fn #get_by_single_fn_name<LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]>(
+                        &mut self,
+                        #relation_singular: &<Self as [<#relation_ty BaseRepository>]>::Record,
+                        load_relations: &LR,
+                        client: Self::Client<'_>,
+                    ) -> Result<#return_ty, Self::Error>
                     where
                         Self: #read_repositories
                     {
@@ -720,6 +989,7 @@ pub mod read_repositories {
             relation: &RelationInput,
             repository: &RepositoryInput,
             relation_repository: &RepositoryInput,
+            input: &RepositoriesInput,
         ) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
@@ -738,6 +1008,8 @@ pub mod read_repositories {
                 op_by_multiple_fn_name("get", relation, relation_repository);
             let load_by_multiple_fn_name =
                 op_by_multiple_fn_name("load", relation, relation_repository);
+
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
 
             let return_ty = match relation.cardinality {
                 Cardinality::One => {
@@ -763,6 +1035,8 @@ pub mod read_repositories {
 
             let body = match relation.cardinality {
                 Cardinality::One => quote! { hex_arch_paste! {
+                    use #load_relations_trait_mod::*;
+
                     let (pre_sort_values, [<#plural _ptrs>]) =  Self::#load_by_multiple_fn_name(&#relation_plural, client)?
                         .into_iter()
                         .map(|(record, _)| record)
@@ -773,7 +1047,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                        if let Some(load_relations) = load_relations.#relation_snakes() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -781,6 +1055,8 @@ pub mod read_repositories {
                     Ok(pre_sort_values.into_iter().zip_with(all_loaded_relations, Entity::from).dupe_and_sort::<Self::Error>()?)
                 } },
                 Cardinality::OneOrNone => quote! { hex_arch_paste! {
+                    use #load_relations_trait_mod::*;
+
                     let (pre_sort_values, [<#plural _ptrs>]) =  Self::#load_by_multiple_fn_name(&#relation_plural, client)?
                         .into_iter()
                         .map(|(record, _)| record)
@@ -791,7 +1067,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                        if let Some(load_relations) = load_relations.#relation_snakes() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -799,6 +1075,8 @@ pub mod read_repositories {
                     Ok(pre_sort_values.into_iter().zip_with(all_loaded_relations, Entity::from).try_dupe_and_sort())
                 } },
                 Cardinality::Many => quote! { hex_arch_paste! {
+                    use #load_relations_trait_mod::*;
+
                     let pre_sort_values = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
 
                     let (pre_sort_values, parent_keys) = pre_sort_values.take_right();
@@ -809,7 +1087,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                        if let Some(load_relations) = load_relations.#relation_snakes() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -831,6 +1109,8 @@ pub mod read_repositories {
                     )
                 } },
                 Cardinality::AtLeastOne => quote! { hex_arch_paste! {
+                    use #load_relations_trait_mod::*;
+
                     let pre_sort_values = Self::#load_by_multiple_fn_name(&#relation_plural, client)?;
 
                     let (pre_sort_values, parent_keys) = pre_sort_values.take_right();
@@ -845,7 +1125,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes.as_ref() {
+                        if let Some(load_relations) = load_relations.#relation_snakes() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -870,7 +1150,12 @@ pub mod read_repositories {
 
             quote! {
                 hex_arch_paste! {
-                    fn #get_by_multiple_fn_name(&mut self, #relation_plural: &Vec<&<Self as [<#relation_ty BaseRepository>]>::Record>, load_relations: &[<Load #ty Relations>], client: Self::Client<'_>) -> Result<#return_ty, Self::Error>
+                    fn #get_by_multiple_fn_name<LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]>(
+                        &mut self,
+                        #relation_plural: &Vec<&<Self as [<#relation_ty BaseRepository>]>::Record>,
+                        load_relations: &LR,
+                        client: Self::Client<'_>,
+                    ) -> Result<#return_ty, Self::Error>
                     where
                         Self: #read_repositories
                     {
@@ -949,60 +1234,72 @@ pub mod read_repositories {
             match load_by.cardinality {
                 Cardinality::One => quote! { hex_arch_paste! {
                     impl #ty {
-                        pub fn [<get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_singular: #load_by_ty) -> [<Get #ty Builder>]<Adaptor> {
+                        pub fn [<get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(
+                            #load_by_singular: #load_by_ty,
+                        ) -> [<Get #ty Builder>]<Adaptor, [<StaticLoad #ty Relations>]> {
                             [<Get #ty Builder>] {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Ok(Adaptor::#load_by_field_multiple_fn_name(vec![#load_by_singular], client)?)),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
 
-                        pub fn [<get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_plural: Vec<#load_by_ty>) -> [<Get #ty sBuilder>]<Adaptor> {
+                        pub fn [<get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(
+                            #load_by_plural: Vec<#load_by_ty>,
+                        ) -> [<Get #ty sBuilder>]<Adaptor, [<StaticLoad #ty Relations>]> {
                             [<Get #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Ok(
                                     Adaptor::#load_by_field_multiple_fn_name(#load_by_plural, client)?
                                 )),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
 
-                        pub fn [<try_get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_singular: #load_by_ty) -> [<TryGet #ty Builder>]<Adaptor> {
+                        pub fn [<try_get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(
+                            #load_by_singular: #load_by_ty,
+                        ) -> [<TryGet #ty Builder>]<Adaptor, [<StaticLoad #ty Relations>]> {
                             [<TryGet #ty Builder>] {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Ok(Adaptor::#try_load_by_field_multiple_fn_name(vec![#load_by_singular], client)?)),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
 
-                        pub fn [<try_get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_plural: Vec<#load_by_ty>) -> [<TryGet #ty sBuilder>]<Adaptor> {
+                        pub fn [<try_get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(
+                            #load_by_plural: Vec<#load_by_ty>,
+                        ) -> [<TryGet #ty sBuilder>]<Adaptor, [<StaticLoad #ty Relations>]> {
                             [<TryGet #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Ok(Adaptor::#try_load_by_field_multiple_fn_name(#load_by_plural.clone(), client)?)),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
                 } },
                 Cardinality::Many => quote! { hex_arch_paste! {
                     impl #ty {
-                        pub fn [<get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_singular: #load_by_ty) -> [<Get #ty sBuilder>]<Adaptor> {
+                        pub fn [<get_by_ #load_by_singular>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(
+                            #load_by_singular: #load_by_ty
+                        ) -> [<Get #ty sBuilder>]<Adaptor, [<StaticLoad #ty Relations>]> {
                             [<Get #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Ok(
                                     Adaptor::#load_by_field_multiple_fn_name(vec![#load_by_singular], client)?
                                 )),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
 
-                        pub fn [<get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(#load_by_plural: Vec<#load_by_ty>) -> [<Get #ty sBuilder>]<Adaptor> {
+                        pub fn [<get_batch_by_ #load_by_plural>]<Adaptor: [<#ty ReadRepository>] + #read_repositories>(
+                            #load_by_plural: Vec<#load_by_ty>
+                        ) -> [<Get #ty sBuilder>]<Adaptor, [<StaticLoad #ty Relations>]> {
                             [<Get #ty sBuilder>] {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Ok(
                                     Adaptor::#load_by_field_multiple_fn_name(#load_by_plural, client)?
                                 )),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -1046,10 +1343,13 @@ pub mod read_repositories {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
-            let relation_snakes = repository.relation_snakes();
             let read_repositories = repository.read_repositories();
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
 
             let inward_relations = repository.inward_relations(input);
+
+            let builder = format_ident!("Get{}Builder", ty);
+            let impl_builder_load_fns = shared::get_impl_read_builder_load_fns(&builder, repository, input);
 
             let get_bys: Vec<_> = inward_relations
                 .iter()
@@ -1070,15 +1370,20 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> [<Get #ty Builder>]<Adaptor> {
-                                                [<Get #ty Builder>] {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(
+                                                key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>,
+                                            ) -> #builder<
+                                                Adaptor,
+                                                [<StaticLoad #ty Relations>],
+                                            > {
+                                                #builder {
                                                     adaptor: Adaptor::default(),
                                                     load_pre_sort_values: Box::new(move |client| Ok(
                                                         Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](vec![key.into()], client)?
                                                             .take_right()
                                                             .0
                                                     )),
-                                                    load_relations: [<Load #ty Relations>]::default(),
+                                                    load_relations: [<StaticLoad #ty Relations>]::default(),
                                                 }
                                             }
                                         }
@@ -1096,7 +1401,7 @@ pub mod read_repositories {
 
             quote! {
                 hex_arch_paste! {
-                    pub struct [<Get #ty Builder>]<Adaptor: #read_repositories> {
+                    pub struct #builder<Adaptor: #read_repositories, LR> {
                         adaptor: Adaptor,
                         load_pre_sort_values: Box<
                             dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<
@@ -1104,24 +1409,12 @@ pub mod read_repositories {
                                 <Adaptor as BaseRepository>::Error,
                             >
                         >,
-                        pub load_relations: [<Load #ty Relations>],
+                        pub load_relations: LR,
                     }
 
-                    impl<Adaptor: #read_repositories> [<Get #ty Builder>]<Adaptor> {
-                        #(
-                            pub fn [<load_ #relation_snakes>](mut self) -> [<Get #ty Builder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                self
-                            }
+                    #impl_builder_load_fns
 
-                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Get #ty Builder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                self
-                            }
-                        )*
-                    }
-
-                    impl<Adaptor: #read_repositories> [<Get #ty Builder>]<Adaptor>
+                    impl<Adaptor: #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #builder<Adaptor, LR>
                     where
                         #(<Adaptor as [<#relation_tys BaseRepository>]>::Record: Into<#relation_tys>,)*
                     {
@@ -1134,11 +1427,16 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn get<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<Get #ty Builder>]<Adaptor> {
-                            [<Get #ty Builder>] {
+                        pub fn get<Adaptor: #read_repositories>(
+                            key: impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>
+                        ) -> #builder<
+                            Adaptor,
+                            [<StaticLoad #ty Relations>],
+                        > {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Ok(Adaptor::[<load_ #plural>](vec![key.into()], client)?)),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -1155,10 +1453,13 @@ pub mod read_repositories {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
-            let relation_snakes = repository.relation_snakes();
             let read_repositories = repository.read_repositories();
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
 
             let inward_relations = repository.inward_relations(input);
+
+            let builder = format_ident!("Get{}sBuilder", ty);
+            let impl_builder_load_fns = shared::get_impl_read_builder_load_fns(&builder, repository, input);
 
             let get_batch_bys: Vec<_> = inward_relations
                 .iter()
@@ -1180,8 +1481,8 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>) -> [<Get #ty sBuilder>]<Adaptor> {
-                                                [<Get #ty sBuilder>] {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                                                #builder {
                                                     adaptor: Adaptor::default(),
                                                     load_pre_sort_values: Box::new(move |client| Ok(
                                                         Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](
@@ -1191,7 +1492,7 @@ pub mod read_repositories {
                                                             .take_right()
                                                             .0
                                                     )),
-                                                    load_relations: [<Load #ty Relations>]::default(),
+                                                    load_relations: [<StaticLoad #ty Relations>]::default(),
                                                 }
                                             }
                                         }
@@ -1204,20 +1505,23 @@ pub mod read_repositories {
                             let relation_key_ty = relation_repository.key_ty();
                             let singular_fn_name = format_ident!("get_batch_by_{}_{}", relation_singular, relation_key_singular);
                             let plural_fn_name = format_ident!("get_batch_by_{}_{}", relation_singular, relation_key_plural);
+                            let by_many_builder = format_ident!("Get{}sByMany{}sBuilder", ty, relation_ty);
+                            let impl_by_many_builder_load_fns = shared::get_impl_read_builder_load_fns(&by_many_builder, repository, input);
+
                             Some(vec![
                                 (
                                     quote! {
                                         hex_arch_paste! {
                                             impl #ty {
-                                                pub fn #singular_fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> [<Get #ty sBuilder>]<Adaptor> {
-                                                    [<Get #ty sBuilder>] {
+                                                pub fn #singular_fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                                                    #builder {
                                                         adaptor: Adaptor::default(),
                                                         load_pre_sort_values: Box::new(move |client| Ok(
                                                             Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](vec![key.into()], client)?
                                                                 .take_right()
                                                                 .0
                                                         )),
-                                                        load_relations: [<Load #ty Relations>]::default(),
+                                                        load_relations: [<StaticLoad #ty Relations>]::default(),
                                                     }
                                                 }
                                             }
@@ -1227,27 +1531,15 @@ pub mod read_repositories {
                                 ),
                                 (
                                     quote! {
-                                        pub struct [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor: #read_repositories> {
+                                        pub struct #by_many_builder<Adaptor: #read_repositories, LR> {
                                             adaptor: Adaptor,
                                             load_pre_sort_values: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<PreSortValues<(<Adaptor as [<#ty BaseRepository>]>::Record, <Adaptor as [<#relation_ty BaseRepository>]>::Key)>, <Adaptor as BaseRepository>::Error>>,
-                                            pub load_relations: [<Load #ty Relations>],
+                                            pub load_relations: LR,
                                         }
 
-                                        impl<Adaptor: #read_repositories> [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor> {
-                                            #(
-                                                pub fn [<load_ #relation_snakes>](mut self) -> [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor> {
-                                                    self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                                    self
-                                                }
+                                        #impl_by_many_builder_load_fns
 
-                                                pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor> {
-                                                    self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                                    self
-                                                }
-                                            )*
-                                        }
-
-                                        impl<Adaptor: #read_repositories> [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor>
+                                        impl<Adaptor: #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #by_many_builder<Adaptor, LR>
                                         where
                                             #(<Adaptor as [<#relation_tys BaseRepository>]>::Record: Into<#relation_tys>,)*
                                         {
@@ -1266,8 +1558,8 @@ pub mod read_repositories {
                                         }
 
                                         impl #ty {
-                                            pub fn #plural_fn_name<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>) -> [<Get #ty sByMany #relation_ty sBuilder>]<Adaptor> {
-                                                [<Get #ty sByMany #relation_ty sBuilder>] {
+                                            pub fn #plural_fn_name<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>) -> #by_many_builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                                                #by_many_builder {
                                                     adaptor: Adaptor::default(),
                                                     load_pre_sort_values: Box::new(move |client|
                                                         Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](
@@ -1275,7 +1567,7 @@ pub mod read_repositories {
                                                             client,
                                                         )
                                                     ),
-                                                    load_relations: [<Load #ty Relations>]::default(),
+                                                    load_relations: [<StaticLoad #ty Relations>]::default(),
                                                 }
                                             }
                                         }
@@ -1294,27 +1586,15 @@ pub mod read_repositories {
 
             quote! {
                 hex_arch_paste! {
-                    pub struct [<Get #ty sBuilder>]<Adaptor: #read_repositories> {
+                    pub struct #builder<Adaptor: #read_repositories, LR> {
                         adaptor: Adaptor,
                         load_pre_sort_values: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<PreSortValues<<Adaptor as [<#ty BaseRepository>]>::Record>, <Adaptor as BaseRepository>::Error>>,
-                        pub load_relations: [<Load #ty Relations>],
+                        pub load_relations: LR,
                     }
 
-                    impl<Adaptor: #read_repositories> [<Get #ty sBuilder>]<Adaptor> {
-                        #(
-                            pub fn [<load_ #relation_snakes>](mut self) -> [<Get #ty sBuilder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                self
-                            }
+                    #impl_builder_load_fns
 
-                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Get #ty sBuilder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                self
-                            }
-                        )*
-                    }
-
-                    impl<Adaptor: #read_repositories> [<Get #ty sBuilder>]<Adaptor>
+                    impl<Adaptor: #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #builder<Adaptor, LR>
                     where
                         #(<Adaptor as [<#relation_tys BaseRepository>]>::Record: Into<#relation_tys>,)*
                     {
@@ -1325,22 +1605,22 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn get_all<Adaptor: #read_repositories>() -> [<Get #ty sBuilder>]<Adaptor> {
-                            [<Get #ty sBuilder>] {
+                        pub fn get_all<Adaptor: #read_repositories>() -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Adaptor::[<load_all_ #plural>](client)),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
 
-                        pub fn get_batch<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>) -> [<Get #ty sBuilder>]<Adaptor> {
-                            [<Get #ty sBuilder>] {
+                        pub fn get_batch<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Adaptor::[<load_ #plural>](
                                     keys.into_iter().map(|key| key.into()).collect(),
                                     client,
                                 )),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -1357,10 +1637,13 @@ pub mod read_repositories {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
-            let relation_snakes = repository.relation_snakes();
             let read_repositories = repository.read_repositories();
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
 
             let inward_relations = repository.inward_relations(input);
+
+            let builder = format_ident!("TryGet{}Builder", ty);
+            let impl_builder_load_fns = shared::get_impl_read_builder_load_fns(&builder, repository, input);
 
             let try_get_bys: Vec<_> = inward_relations
                 .iter()
@@ -1382,15 +1665,17 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> [<TryGet #ty Builder>]<Adaptor> {
-                                                [<TryGet #ty Builder>] {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(
+                                                key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>,
+                                            ) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                                                #builder {
                                                     adaptor: Adaptor::default(),
                                                     load_pre_sort_values: Box::new(move |client| Ok(
                                                         Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](vec![key.into()], client)?
                                                             .take_right()
                                                             .0
                                                     )),
-                                                    load_relations: [<Load #ty Relations>]::default(),
+                                                    load_relations: [<StaticLoad #ty Relations>]::default(),
                                                 }
                                             }
                                         }
@@ -1405,15 +1690,17 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>) -> [<TryGet #ty Builder>]<Adaptor> {
-                                                [<TryGet #ty Builder>] {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(
+                                                key: impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>,
+                                            ) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                                                #builder {
                                                     adaptor: Adaptor::default(),
                                                     load_pre_sort_values: Box::new(move |client| Ok(
                                                         Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](vec![key.into()], client)?
                                                             .take_right()
                                                             .0
                                                     )),
-                                                    load_relations: [<Load #ty Relations>]::default(),
+                                                    load_relations: [<StaticLoad #ty Relations>]::default(),
                                                 }
                                             }
                                         }
@@ -1431,27 +1718,15 @@ pub mod read_repositories {
 
             quote! {
                 hex_arch_paste! {
-                    pub struct [<TryGet #ty Builder>]<Adaptor: #read_repositories> {
+                    pub struct #builder<Adaptor: #read_repositories, LR> {
                         adaptor: Adaptor,
                         load_pre_sort_values: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<PreSortValues<<Adaptor as [<#ty BaseRepository>]>::Record>, <Adaptor as BaseRepository>::Error>>,
-                        pub load_relations: [<Load #ty Relations>],
+                        pub load_relations: LR,
                     }
 
-                    impl<Adaptor: #read_repositories> [<TryGet #ty Builder>]<Adaptor> {
-                        #(
-                            pub fn [<load_ #relation_snakes>](mut self) -> [<TryGet #ty Builder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                self
-                            }
+                    #impl_builder_load_fns
 
-                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<TryGet #ty Builder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                self
-                            }
-                        )*
-                    }
-
-                    impl<Adaptor: #read_repositories> [<TryGet #ty Builder>]<Adaptor>
+                    impl<Adaptor: #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #builder<Adaptor, LR>
                     where
                         #(<Adaptor as [<#relation_tys BaseRepository>]>::Record: Into<#relation_tys>,)*
                     {
@@ -1466,11 +1741,11 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn try_get<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>) -> [<TryGet #ty Builder>]<Adaptor> {
-                            [<TryGet #ty Builder>] {
+                        pub fn try_get<Adaptor: #read_repositories>(key: impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(move |client| Ok(Adaptor::[<load_ #plural>](vec![key.into()], client)?)),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -1487,10 +1762,13 @@ pub mod read_repositories {
             let ty = repository.ty();
             let plural = repository.plural();
             let relation_tys = repository.relation_tys();
-            let relation_snakes = repository.relation_snakes();
             let read_repositories = repository.read_repositories();
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
 
             let inward_relations = repository.inward_relations(input);
+
+            let builder = format_ident!("TryGet{}sBuilder", ty);
+            let impl_builder_load_fns = shared::get_impl_read_builder_load_fns(&builder, repository, input);
 
             let try_get_batch_bys: Vec<_> = inward_relations
                 .iter()
@@ -1511,16 +1789,18 @@ pub mod read_repositories {
                                 quote! {
                                     hex_arch_paste! {
                                         impl #ty {
-                                            pub fn #fn_name<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>) -> [<TryGet #ty sBuilder>]<Adaptor> {
+                                            pub fn #fn_name<Adaptor: #read_repositories>(
+                                                keys: Vec<impl 'static + Into<<Adaptor as [<#relation_ty BaseRepository>]>::Key>>
+                                            ) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
                                                 let keys: Vec<<Adaptor as [<#relation_ty BaseRepository>]>::Key> = keys.into_iter().map(|key| key.into()).collect();
-                                                [<TryGet #ty sBuilder>] {
+                                                #builder {
                                                     adaptor: Adaptor::default(),
                                                     load_pre_sort_values: Box::new(|client| Ok(
                                                         Adaptor::[<load_ #relation_plural _by_ #relation_singular _ #relation_key_plural>](keys, client)?
                                                             .take_right()
                                                             .0
                                                     )),
-                                                    load_relations: [<Load #ty Relations>]::default(),
+                                                    load_relations: [<StaticLoad #ty Relations>]::default(),
                                                 }
                                             }
                                         }
@@ -1539,27 +1819,15 @@ pub mod read_repositories {
 
             quote! {
                 hex_arch_paste! {
-                    pub struct [<TryGet #ty sBuilder>]<Adaptor: #read_repositories> {
+                    pub struct #builder<Adaptor: #read_repositories, LR> {
                         adaptor: Adaptor,
                         load_pre_sort_values: Box<dyn FnOnce(<Adaptor as BaseRepository>::Client<'_>) -> Result<PreSortValues<<Adaptor as [<#ty BaseRepository>]>::Record>, <Adaptor as BaseRepository>::Error>>,
-                        pub load_relations: [<Load #ty Relations>],
+                        pub load_relations: LR,
                     }
 
-                    impl<Adaptor: #read_repositories> [<TryGet #ty sBuilder>]<Adaptor> {
-                        #(
-                            pub fn [<load_ #relation_snakes>](mut self) -> [<TryGet #ty sBuilder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                self
-                            }
+                    #impl_builder_load_fns
 
-                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<TryGet #ty sBuilder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                self
-                            }
-                        )*
-                    }
-
-                    impl<Adaptor: #read_repositories> [<TryGet #ty sBuilder>]<Adaptor>
+                    impl<Adaptor: #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #builder<Adaptor, LR>
                     where
                         #(<Adaptor as [<#relation_tys BaseRepository>]>::Record: Into<#relation_tys>,)*
                     {
@@ -1570,14 +1838,14 @@ pub mod read_repositories {
                     }
 
                     impl #ty {
-                        pub fn try_get_batch<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>) -> [<TryGet #ty sBuilder>]<Adaptor> {
-                            [<TryGet #ty sBuilder>] {
+                        pub fn try_get_batch<Adaptor: #read_repositories>(keys: Vec<impl 'static + Into<<Adaptor as [<#ty BaseRepository>]>::Key>>) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 load_pre_sort_values: Box::new(|client| Adaptor::[<load_ #plural>](
                                     keys.into_iter().map(|key| key.into()).collect(),
                                     client,
                                 )),
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -1617,13 +1885,13 @@ pub mod write_repositories {
                     let delete_ty_multiple_builder =
                         builders::delete_ty_multiple_builder(repository);
                     let insert_ty_singular_builder =
-                        builders::insert_ty_singular_builder(repository);
+                        builders::insert_ty_singular_builder(repository, input);
                     let insert_ty_multiple_builder =
-                        builders::insert_ty_multiple_builder(repository);
+                        builders::insert_ty_multiple_builder(repository, input);
                     let update_ty_singular_builder =
-                        builders::update_ty_singular_builder(repository);
+                        builders::update_ty_singular_builder(repository, input);
                     let update_ty_multiple_builder =
-                        builders::update_ty_multiple_builder(repository);
+                        builders::update_ty_multiple_builder(repository, input);
                     quote! {
                         #ty_write_repository
                         #delete_ty_singular_builder
@@ -1742,34 +2010,26 @@ pub mod write_repositories {
             }
         }
 
-        pub fn insert_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn insert_ty_singular_builder(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let read_repositories = repository.read_repositories();
-            let relation_snakes = repository.relation_snakes();
-            let relation_tys = repository.relation_tys();
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
+
+            let builder = format_ident!("Insert{}Builder", ty);
+            let impl_builder_load_fns = shared::get_impl_write_builder_load_fns(&builder, repository, input, vec!["adaptor", "post"]);
 
             quote! {
                 hex_arch_paste! {
-                    pub struct [<Insert #ty Builder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
+                    pub struct #builder<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR> {
                         adaptor: Adaptor,
                         post: [<#ty Post>],
-                        pub load_relations: [<Load #ty Relations>],
+                        pub load_relations: LR,
                     }
 
-                    impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Insert #ty Builder>]<Adaptor> {
-                        #(
-                            pub fn [<load_ #relation_snakes>](mut self) -> [<Insert #ty Builder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                self
-                            }
+                    #impl_builder_load_fns
 
-                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Insert #ty Builder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                self
-                            }
-                        )*
-
+                    impl<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #builder<Adaptor, LR> {
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<[<#ty Entity>], <Adaptor as BaseRepository>::Error> {
                             let adaptor_record = {
                                 let _write_lock = Adaptor::write()?;
@@ -1783,11 +2043,11 @@ pub mod write_repositories {
                     }
 
                     impl #ty {
-                        pub fn insert<Adaptor: [<#ty WriteRepository>] + #read_repositories>(post: [<#ty Post>]) -> [<Insert #ty Builder>]<Adaptor> {
-                            [<Insert #ty Builder>] {
+                        pub fn insert<Adaptor: [<#ty WriteRepository>] + #read_repositories>(post: [<#ty Post>]) -> #builder<Adaptor, [<StaticLoad #ty Relations>]> {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 post,
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -1795,34 +2055,26 @@ pub mod write_repositories {
             }
         }
 
-        pub fn insert_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn insert_ty_multiple_builder(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let read_repositories = repository.read_repositories();
-            let relation_snakes = repository.relation_snakes();
-            let relation_tys = repository.relation_tys();
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
+
+            let builder = format_ident!("Insert{}sBuilder", ty);
+            let impl_builder_load_fns = shared::get_impl_write_builder_load_fns(&builder, repository, input, vec!["adaptor", "posts"]);
 
             quote! {
                 hex_arch_paste! {
-                    pub struct [<Insert #ty sBuilder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
+                    pub struct #builder<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR> {
                         adaptor: Adaptor,
                         posts: Vec<[<#ty Post>]>,
-                        pub load_relations: [<Load #ty Relations>],
+                        pub load_relations: LR,
                     }
 
-                    impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Insert #ty sBuilder>]<Adaptor> {
-                        #(
-                            pub fn [<load_ #relation_snakes>](mut self) -> [<Insert #ty sBuilder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                self
-                            }
+                    #impl_builder_load_fns
 
-                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Insert #ty sBuilder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                self
-                            }
-                        )*
-
+                    impl<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #builder<Adaptor, LR> {
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<[<#ty Entity>]>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_records = {
                                 let _write_lock = Adaptor::write()?;
@@ -1834,11 +2086,11 @@ pub mod write_repositories {
                     }
 
                     impl #ty {
-                        pub fn insert_batch<Adaptor: [<#ty WriteRepository>] + #read_repositories>(posts: Vec<[<#ty Post>]>) -> [<Insert #ty sBuilder>]<Adaptor> {
-                            [<Insert #ty sBuilder>] {
+                        pub fn insert_batch<Adaptor: [<#ty WriteRepository>] + #read_repositories>(posts: Vec<[<#ty Post>]>) -> [<Insert #ty sBuilder>]<Adaptor, [<StaticLoad #ty Relations>]> {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 posts,
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -1846,34 +2098,26 @@ pub mod write_repositories {
             }
         }
 
-        pub fn update_ty_singular_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn update_ty_singular_builder(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let read_repositories = repository.read_repositories();
-            let relation_snakes = repository.relation_snakes();
-            let relation_tys = repository.relation_tys();
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
+
+            let builder = format_ident!("Update{}Builder", ty);
+            let impl_builder_load_fns = shared::get_impl_write_builder_load_fns(&builder, repository, input, vec!["adaptor", "patch"]);
 
             quote! {
                 hex_arch_paste! {
-                    pub struct [<Update #ty Builder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
+                    pub struct #builder<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR> {
                         adaptor: Adaptor,
                         patch: [<#ty Patch>],
-                        pub load_relations: [<Load #ty Relations>],
+                        pub load_relations: LR,
                     }
 
-                    impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Update #ty Builder>]<Adaptor> {
-                        #(
-                            pub fn [<load_ #relation_snakes>](mut self) -> [<Update #ty Builder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                self
-                            }
+                    #impl_builder_load_fns
 
-                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Update #ty Builder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                self
-                            }
-                        )*
-
+                    impl<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #builder<Adaptor, LR> {
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<[<#ty Entity>], <Adaptor as BaseRepository>::Error> {
                             let adaptor_record = {
                                 let _write_lock = Adaptor::write()?;
@@ -1887,11 +2131,11 @@ pub mod write_repositories {
                     }
 
                     impl #ty {
-                        pub fn update<Adaptor: [<#ty WriteRepository>] + #read_repositories>(patch: [<#ty Patch>]) -> [<Update #ty Builder>]<Adaptor> {
-                            [<Update #ty Builder>] {
+                        pub fn update<Adaptor: [<#ty WriteRepository>] + #read_repositories>(patch: [<#ty Patch>]) -> [<Update #ty Builder>]<Adaptor, [<StaticLoad #ty Relations>]> {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 patch,
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -1899,34 +2143,26 @@ pub mod write_repositories {
             }
         }
 
-        pub fn update_ty_multiple_builder(repository: &RepositoryInput) -> TokenStream2 {
+        pub fn update_ty_multiple_builder(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
             let ty = repository.ty();
             let plural = repository.plural();
             let read_repositories = repository.read_repositories();
-            let relation_snakes = repository.relation_snakes();
-            let relation_tys = repository.relation_tys();
+            let load_relations_trait_mod = &input.load_relations_trait_mod;
+
+            let builder = format_ident!("Update{}sBuilder", ty);
+            let impl_builder_load_fns = shared::get_impl_write_builder_load_fns(&builder, repository, input, vec!["adaptor", "patches"]);
 
             quote! {
                 hex_arch_paste! {
-                    pub struct [<Update #ty sBuilder>]<Adaptor: [<#ty WriteRepository>] + #read_repositories> {
+                    pub struct #builder<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR> {
                         adaptor: Adaptor,
                         patches: Vec<[<#ty Patch>]>,
-                        pub load_relations: [<Load #ty Relations>],
+                        pub load_relations: LR,
                     }
 
-                    impl<Adaptor: [<#ty WriteRepository>] + #read_repositories> [<Update #ty sBuilder>]<Adaptor> {
-                        #(
-                            pub fn [<load_ #relation_snakes>](mut self) -> [<Update #ty sBuilder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes>]();
-                                self
-                            }
+                    #impl_builder_load_fns
 
-                            pub fn [<load_ #relation_snakes _with>](mut self, with_fn: impl FnOnce([<Load #relation_tys Relations>]) -> [<Load #relation_tys Relations>]) -> [<Update #ty sBuilder>]<Adaptor> {
-                                self.load_relations = self.load_relations.[<load_ #relation_snakes _with>](with_fn);
-                                self
-                            }
-                        )*
-
+                    impl<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTraitRef>]> #builder<Adaptor, LR> {
                         pub fn run(mut self, client: <Adaptor as BaseRepository>::Client<'_>) -> Result<Vec<[<#ty Entity>]>, <Adaptor as BaseRepository>::Error> {
                             let adaptor_records = {
                                 let _write_lock = Adaptor::write()?;
@@ -1938,11 +2174,11 @@ pub mod write_repositories {
                     }
 
                     impl #ty {
-                        pub fn update_batch<Adaptor: [<#ty WriteRepository>] + #read_repositories>(patches: Vec<[<#ty Patch>]>) -> [<Update #ty sBuilder>]<Adaptor> {
-                            [<Update #ty sBuilder>] {
+                        pub fn update_batch<Adaptor: [<#ty WriteRepository>] + #read_repositories>(patches: Vec<[<#ty Patch>]>) -> [<Update #ty sBuilder>]<Adaptor, [<StaticLoad #ty Relations>]> {
+                            #builder {
                                 adaptor: Adaptor::default(),
                                 patches,
-                                load_relations: [<Load #ty Relations>]::default(),
+                                load_relations: [<StaticLoad #ty Relations>]::default(),
                             }
                         }
                     }
@@ -2228,6 +2464,127 @@ pub mod shared {
                     }
                 }
             },
+        }
+    }
+
+    pub (crate) fn get_impl_read_builder_load_fns(builder: &Ident, repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
+        let ty = repository.ty();
+        let relation_tys = repository.relation_tys();
+        let relation_snakes = repository.relation_snakes();
+        let relation_pascals = repository.relation_pascals();
+        let read_repositories = repository.read_repositories();
+        let load_relations_trait_mod = &input.load_relations_trait_mod;
+
+        quote! {
+            hex_arch_paste! {
+                impl<Adaptor: #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTrait>]> #builder<Adaptor, LR> {
+
+                    pub fn as_dyn(self) -> #builder<Adaptor, [<DynLoad #ty Relations>]> {
+                        use #load_relations_trait_mod::*;
+
+                        #builder {
+                            load_relations: self.load_relations.as_dyn().unwrap(),
+                            adaptor: self.adaptor,
+                            load_pre_sort_values: self.load_pre_sort_values,
+                        }
+                    }
+
+                    pub fn map_load_relations<NewLR: #load_relations_trait_mod::[<Load #ty RelationsTrait>]>(self, map_fn: impl FnOnce(LR) -> NewLR) -> #builder<Adaptor, NewLR> {
+                        #builder {
+                            load_relations: map_fn(self.load_relations),
+                            adaptor: self.adaptor,
+                            load_pre_sort_values: self.load_pre_sort_values,
+                        }
+                    }
+
+                    #(
+                        pub fn [<load_ #relation_snakes>](self) -> #builder<
+                            Adaptor,
+                            LR::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]>,
+                        > {
+                            #builder {
+                                adaptor: self.adaptor,
+                                load_pre_sort_values: self.load_pre_sort_values,
+                                load_relations: self.load_relations.[<load_ #relation_snakes>](),
+                            }
+                        }
+
+                        pub fn [<load_ #relation_snakes _with>]<SubLR: #load_relations_trait_mod::[<Load #relation_tys RelationsTrait>]>(
+                            self,
+                            with_fn: impl FnOnce(<LR as #load_relations_trait_mod::[<Load #ty RelationsTrait>]>::[<Load #relation_pascals Relations>]) -> SubLR,
+                        ) -> #builder<
+                            Adaptor,
+                            LR::[<WithLoad #relation_pascals Relations>]<SubLR>,
+                        > {
+                            #builder {
+                                adaptor: self.adaptor,
+                                load_pre_sort_values: self.load_pre_sort_values,
+                                load_relations: self.load_relations.[<load_ #relation_snakes _with>](with_fn),
+                            }
+                        }
+                    )*
+                }
+            }
+        }
+    }
+
+    pub (crate) fn get_impl_write_builder_load_fns(builder: &Ident, repository: &RepositoryInput, input: &RepositoriesInput, other_fields: Vec<&'static str>) -> TokenStream2 {
+        let ty = repository.ty();
+        let relation_tys = repository.relation_tys();
+        let relation_snakes = repository.relation_snakes();
+        let relation_pascals = repository.relation_pascals();
+        let read_repositories = repository.read_repositories();
+        let load_relations_trait_mod = &input.load_relations_trait_mod;
+
+        let other_fields: Vec<_> = other_fields.iter().map(|field| format_ident!("{}", field)).collect();
+        let duped_other_fields: Vec<Vec<_>> = other_fields.iter().map(|_| other_fields.clone()).collect();
+
+        quote! {
+            hex_arch_paste! {
+                impl<Adaptor: [<#ty WriteRepository>] + #read_repositories, LR: #load_relations_trait_mod::[<Load #ty RelationsTrait>]> #builder<Adaptor, LR> {
+
+                    pub fn as_dyn(self) -> #builder<Adaptor, [<DynLoad #ty Relations>]> {
+                        use #load_relations_trait_mod::*;
+
+                        #builder {
+                            load_relations: self.load_relations.as_dyn().unwrap(),
+                            #( #other_fields: self.#other_fields, )*
+                        }
+                    }
+
+                    pub fn map_load_relations<NewLR: #load_relations_trait_mod::[<Load #ty RelationsTrait>]>(self, map_fn: impl FnOnce(LR) -> NewLR) -> #builder<Adaptor, NewLR> {
+                        #builder {
+                            load_relations: map_fn(self.load_relations),
+                            #( #other_fields: self.#other_fields, )*
+                        }
+                    }
+
+                    #(
+                        pub fn [<load_ #relation_snakes>](self) -> #builder<
+                            Adaptor,
+                            LR::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]>,
+                        > {
+                            #builder {
+                                #( #duped_other_fields: self.#duped_other_fields, )*
+                                load_relations: self.load_relations.[<load_ #relation_snakes>](),
+                            }
+                        }
+
+                        pub fn [<load_ #relation_snakes _with>]<SubLR: #load_relations_trait_mod::[<Load #relation_tys RelationsTrait>]>(
+                            self,
+                            with_fn: impl FnOnce(<LR as #load_relations_trait_mod::[<Load #ty RelationsTrait>]>::[<Load #relation_pascals Relations>]) -> SubLR,
+                        ) -> #builder<
+                            Adaptor,
+                            LR::[<WithLoad #relation_pascals Relations>]<SubLR>,
+                        > {
+                            #builder {
+                                #( #duped_other_fields: self.#duped_other_fields, )*
+                                load_relations: self.load_relations.[<load_ #relation_snakes _with>](with_fn),
+                            }
+                        }
+                    )*
+                }
+            }
         }
     }
 }

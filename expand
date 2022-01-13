@@ -15,7 +15,7 @@ expand() {
 
   cargo expand $flags > expanded.rs
   echo $'
-  #![feature(box_syntax, core_intrinsics, derive_eq, fmt_internals, no_coverage, structural_match)]
+  #![feature(box_syntax, core_intrinsics, core_panic, derive_eq, fmt_internals, no_coverage, structural_match)]
   #![allow(warnings, unused)]
   ' > src/lib.rs
   cat expanded.rs >> ./src/lib.rs
