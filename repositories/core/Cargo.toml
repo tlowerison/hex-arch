@@ -1,6 +1,6 @@
 [package]
 name = "hex_arch_repositories_core"
-version = "0.3.25"
+version = "0.3.26"
 authors = ["Trey Lowerison <19714082+tlowerison@users.noreply.github.com>"]
 edition = "2021"
 

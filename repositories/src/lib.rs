@@ -51,6 +51,18 @@ pub trait Transactional {
         E: From<Self::AdaptorError>;
 }
 
+#[derive(Clone, Debug)]
+pub enum Paginate<Cursor: Clone> {
+    Offset {
+        limit: usize,
+        offset: usize,
+    },
+    Cursor {
+        limit: usize,
+        cursor: Cursor,
+    }
+}
+
 pub fn dupe<T: Clone>((value, count): (T, usize)) -> Vec<T> {
     if count == 0 {
         return vec![];

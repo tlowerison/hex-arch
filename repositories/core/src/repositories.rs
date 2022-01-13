@@ -139,19 +139,22 @@ pub mod read_repositories {
         quote! {
             hex_arch_paste! {
                 pub trait [<Load #ty RelationsTraitRef>] {
+                    type Cursor: Clone;
                     type WhereExprRef<'a>;
                     #(
-                        type [<Load #relation_pascals Relations>]: [<Load #relation_tys RelationsTraitRef>];
+                        type [<Load #relation_pascals RelationsRef>]: [<Load #relation_tys RelationsTraitRef>];
                     )*
 
                     fn should_load(&self) -> bool;
-                    fn where_expr(&self) -> Option<Self::WhereExprRef<'_>>;
+                    fn where_expr_ref(&self) -> Option<Self::WhereExprRef<'_>>;
+                    fn paginate_ref(&self) -> Option<&Paginate<Self::Cursor>>;
+
                     #(
-                        fn #relation_snakes(&self) -> Option<&Self::[<Load #relation_pascals Relations>]>;
+                        fn [<#relation_snakes _ref>](&self) -> Option<&Self::[<Load #relation_pascals RelationsRef>]>;
                     )*
                 }
 
-                pub trait [<Load #ty RelationsTrait>] {
+                pub trait [<Load #ty RelationsTrait>]: [<Load #ty RelationsTraitRef>] {
 
                     type WithWhere<NewWhereExpr>;
                     #(
@@ -163,6 +166,8 @@ pub mod read_repositories {
 
                     fn r#where<NewWhereExpr>(self, where_expr: NewWhereExpr) -> Self::WithWhere<NewWhereExpr>;
 
+                    fn paginate(self, paginate: Paginate<Self::Cursor>) -> Self;
+
                     #(
                         fn [<load_ #relation_snakes>](self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]>;
 
@@ -170,19 +175,26 @@ pub mod read_repositories {
                             self,
                             with_fn: impl FnOnce(Self::[<Load #relation_pascals Relations>]) -> LR,
                         ) -> Self::[<WithLoad #relation_pascals Relations>]<LR>;
+
+                        fn [<load_ #relation_snakes _where>]<NewWhereExpr: 'static>(
+                            self,
+                            where_expr: NewWhereExpr,
+                        ) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]<NewWhereExpr>>;
                     )*
                 }
 
                 impl [<Load #ty RelationsTraitRef>] for () {
+                    type Cursor = ();
                     type WhereExprRef<'a> = &'a ();
                     #(
-                        type [<Load #relation_pascals Relations>] = ();
+                        type [<Load #relation_pascals RelationsRef>] = ();
                     )*
 
                     fn should_load(&self) -> bool { false }
-                    fn where_expr(&self) -> Option<Self::WhereExprRef<'_>> { None }
+                    fn where_expr_ref(&self) -> Option<Self::WhereExprRef<'_>> { None }
+                    fn paginate_ref(&self) -> Option<&Paginate<Self::Cursor>> { None }
                     #(
-                        fn #relation_snakes(&self) -> Option<&Self::[<Load #relation_pascals Relations>]> { None }
+                        fn [<#relation_snakes _ref>](&self) -> Option<&Self::[<Load #relation_pascals RelationsRef>]> { None }
                     )*
                 }
 
@@ -200,6 +212,8 @@ pub mod read_repositories {
 
                     fn r#where<NewWhereExpr>(self, _: NewWhereExpr) -> Self::WithWhere<NewWhereExpr> { self }
 
+                    fn paginate(self, paginate: Paginate<Self::Cursor>) -> Self { self }
+
                     #(
                         fn [<load_ #relation_snakes>](self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]> { self }
 
@@ -207,6 +221,11 @@ pub mod read_repositories {
                             self,
                             _: impl FnOnce(Self::[<Load #relation_pascals Relations>]) -> LR,
                         ) -> Self::[<WithLoad #relation_pascals Relations>]<LR> { self }
+
+                        fn [<load_ #relation_snakes _where>]<NewWhereExpr: 'static>(
+                            self,
+                            _: NewWhereExpr,
+                        ) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]<NewWhereExpr>> { self }
                     )*
                 }
             }
@@ -215,6 +234,7 @@ pub mod read_repositories {
 
     fn load_ty_relations(repository: &RepositoryInput, input: &RepositoriesInput) -> TokenStream2 {
         let ty = repository.ty();
+        let key_ty = repository.key_ty();
         let relation_tys = repository.relation_tys();
         let relation_snakes = repository.relation_snakes();
         let relation_pascals = repository.relation_pascals();
@@ -244,8 +264,19 @@ pub mod read_repositories {
             hex_arch_paste! {
                 #[derive(Clone, Debug, Default)]
                 pub struct [<StaticLoad #ty Relations>]<WhereExpr = (), #([<Load #relation_pascals Relations>] = ()),*> {
+                    pub paginate: Option<Paginate<#key_ty>>,
                     pub where_expr: Option<WhereExpr>,
                     #(pub #relation_snakes: [<Load #relation_pascals Relations>],)*
+                }
+
+                impl [<StaticLoad #ty Relations>] {
+                    fn with_where_expr<WhereExpr>(where_expr: WhereExpr) -> [<StaticLoad #ty Relations>]<WhereExpr> {
+                        [<StaticLoad #ty Relations>] {
+                            paginate: None,
+                            where_expr: Some(where_expr),
+                            #(#relation_snakes: (),)*
+                        }
+                    }
                 }
 
                 impl From<()> for [<StaticLoad #ty Relations>] {
@@ -259,19 +290,24 @@ pub mod read_repositories {
                     #([<Load #relation_pascals Relations>]: #load_relations_trait_mod::[<Load #relation_tys RelationsTraitRef>] + 'static),*
                 > #load_relations_trait_mod::[<Load #ty RelationsTraitRef>] for [<StaticLoad #ty Relations>]<WhereExpr, #([<Load #relation_pascals Relations>]),*> {
 
+                    type Cursor = #key_ty;
                     type WhereExprRef<'a> = &'a WhereExpr;
                     #(
-                        type [<Load #relation_pascals Relations>] = [<Load #relation_pascals Relations>];
+                        type [<Load #relation_pascals RelationsRef>] = [<Load #relation_pascals Relations>];
                     )*
 
                     fn should_load(&self) -> bool { true }
 
-                    fn where_expr(&self) -> Option<Self::WhereExprRef<'_>> {
+                    fn where_expr_ref(&self) -> Option<Self::WhereExprRef<'_>> {
                         self.where_expr.as_ref()
                     }
 
+                    fn paginate_ref(&self) -> Option<&Paginate<Self::Cursor>> {
+                        self.paginate.as_ref()
+                    }
+
                     #(
-                        fn #relation_snakes(&self) -> Option<&Self::[<Load #relation_pascals Relations>]> {
+                        fn [<#relation_snakes _ref>](&self) -> Option<&Self::[<Load #relation_pascals RelationsRef>]> {
                             use #load_relations_trait_mod::*;
 
                             if self.#relation_snakes.should_load() {
@@ -301,20 +337,28 @@ pub mod read_repositories {
 
                     fn as_dyn(self) -> Option<[<DynLoad #ty Relations>]> {
                         Some([<DynLoad #ty Relations>] {
+                            paginate: self.paginate,
                             #(#relation_snakes: self.#relation_snakes.as_dyn().map(Box::new)),*
                         })
                     }
 
                     fn r#where<NewWhereExpr>(self, where_expr: NewWhereExpr) -> Self::WithWhere<NewWhereExpr> {
                         [<StaticLoad #ty Relations>] {
+                            paginate: self.paginate,
                             where_expr: Some(where_expr),
                             #(#relation_snakes: self.#relation_snakes),*
                         }
                     }
 
+                    fn paginate(mut self, paginate: Paginate<Self::Cursor>) -> Self {
+                        self.paginate = Some(paginate);
+                        self
+                    }
+
                     #(
                         fn [<load_ #relation_snakes>](self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]> {
                             [<StaticLoad #ty Relations>] {
+                                paginate: self.paginate,
                                 where_expr: self.where_expr,
                                 #relation_snakes: [<StaticLoad #relation_tys Relations>]::default(),
                                 #(#other_relation_snakes: self.#other_relation_snakes),*
@@ -326,9 +370,22 @@ pub mod read_repositories {
                             with_fn: impl FnOnce(Self::[<Load #relation_pascals Relations>]) -> LR,
                         ) -> Self::[<WithLoad #relation_pascals Relations>]<LR> {
                             [<StaticLoad #ty Relations>] {
+                                paginate: self.paginate,
                                 where_expr: self.where_expr,
                                 #relation_snakes: with_fn(self.#relation_snakes.into()),
                                 #(#other_relation_snakes: self.#other_relation_snakes,)*
+                            }
+                        }
+
+                        fn [<load_ #relation_snakes _where>]<NewWhereExpr: 'static>(
+                            self,
+                            where_expr: NewWhereExpr,
+                        ) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]<NewWhereExpr>> {
+                            [<StaticLoad #ty Relations>] {
+                                paginate: self.paginate,
+                                where_expr: self.where_expr,
+                                #relation_snakes: [<StaticLoad #relation_tys Relations>]::with_where_expr(where_expr),
+                                #(#other_relation_snakes: self.#other_relation_snakes),*
                             }
                         }
                     )*
@@ -336,24 +393,30 @@ pub mod read_repositories {
 
                 #[derive(Clone, Debug, Default)]
                 pub struct [<DynLoad #ty Relations>] {
+                    pub paginate: Option<Paginate<#key_ty>>,
                     #(pub #relation_snakes: Option<Box<[<DynLoad #relation_tys Relations>]>>),*
                 }
 
                 impl #load_relations_trait_mod::[<Load #ty RelationsTraitRef>] for [<DynLoad #ty Relations>] {
 
+                    type Cursor = #key_ty;
                     type WhereExprRef<'a> = &'a ();
                     #(
-                        type [<Load #relation_pascals Relations>] = [<DynLoad #relation_tys Relations>];
+                        type [<Load #relation_pascals RelationsRef>] = [<DynLoad #relation_tys Relations>];
                     )*
 
                     fn should_load(&self) -> bool { true }
 
-                    fn where_expr(&self) -> Option<Self::WhereExprRef<'_>> {
+                    fn where_expr_ref(&self) -> Option<Self::WhereExprRef<'_>> {
                         None
                     }
 
+                    fn paginate_ref(&self) -> Option<&Paginate<Self::Cursor>> {
+                        self.paginate.as_ref()
+                    }
+
                     #(
-                        fn #relation_snakes(&self) -> Option<&Self::[<Load #relation_pascals Relations>]> {
+                        fn [<#relation_snakes _ref>](&self) -> Option<&Self::[<Load #relation_pascals RelationsRef>]> {
                             self.#relation_snakes.as_ref().map(|x| x.deref())
                         }
                     )*
@@ -375,6 +438,11 @@ pub mod read_repositories {
                         self
                     }
 
+                    fn paginate(mut self, paginate: Paginate<Self::Cursor>) -> Self {
+                        self.paginate = Some(paginate);
+                        self
+                    }
+
                     #(
                         fn [<load_ #relation_snakes>](mut self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]> {
                             self.#relation_snakes = Some(Box::new([<DynLoad #relation_tys Relations>]::default()));
@@ -390,6 +458,14 @@ pub mod read_repositories {
                             } else {
                                 [<DynLoad #relation_tys Relations>]::default()
                             }).as_dyn().map(Box::new);
+                            self
+                        }
+
+                        fn [<load_ #relation_snakes _where>]<NewWhereExpr: 'static>(
+                            mut self,
+                            _: NewWhereExpr,
+                        ) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]<NewWhereExpr>> {
+                            self.#relation_snakes = Some(Box::new([<DynLoad #relation_tys Relations>]::default()));
                             self
                         }
                     )*
@@ -681,7 +757,7 @@ pub mod read_repositories {
                         let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                         #(
-                            if let Some(load_relations) = load_relations.#relation_snakes() {
+                            if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                                 #load_in_multiples
                             }
                         )*
@@ -709,7 +785,7 @@ pub mod read_repositories {
                         let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                         #(
-                            if let Some(load_relations) = load_relations.#relation_snakes() {
+                            if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                                 #load_in_multiples
                             }
                         )*
@@ -854,7 +930,7 @@ pub mod read_repositories {
                     let mut loaded_relations = [<Loaded #ty Relations>]::default();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes() {
+                        if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                             #relation_load_in_singles
                         }
                     )*
@@ -884,7 +960,7 @@ pub mod read_repositories {
                     let mut loaded_relations = [<Loaded #ty Relations>]::default();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes() {
+                        if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                             #relation_load_in_singles
                         }
                     )*
@@ -907,7 +983,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes() {
+                        if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -945,7 +1021,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes() {
+                        if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -1047,7 +1123,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes() {
+                        if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -1067,7 +1143,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes() {
+                        if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -1087,7 +1163,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes() {
+                        if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -1125,7 +1201,7 @@ pub mod read_repositories {
                     let mut all_loaded_relations: Vec<_> = (0..#plural.len()).map(|_| [<Loaded #ty Relations>]::default()).collect();
 
                     #(
-                        if let Some(load_relations) = load_relations.#relation_snakes() {
+                        if let Some(load_relations) = load_relations.[<#relation_snakes _ref>]() {
                             #relation_load_in_multiples
                         }
                     )*
@@ -2497,6 +2573,22 @@ pub mod shared {
                         }
                     }
 
+                    pub fn r#where<NewWhereExpr>(self, where_expr: NewWhereExpr) -> #builder<
+                        Adaptor,
+                        LR::WithWhere<NewWhereExpr>,
+                    > {
+                        #builder {
+                            adaptor: self.adaptor,
+                            load_pre_sort_values: self.load_pre_sort_values,
+                            load_relations: self.load_relations.r#where(where_expr),
+                        }
+                    }
+
+                    pub fn paginate(mut self, paginate: Paginate<LR::Cursor>) -> Self {
+                        self.load_relations = self.load_relations.paginate(paginate);
+                        self
+                    }
+
                     #(
                         pub fn [<load_ #relation_snakes>](self) -> #builder<
                             Adaptor,
@@ -2520,6 +2612,20 @@ pub mod shared {
                                 adaptor: self.adaptor,
                                 load_pre_sort_values: self.load_pre_sort_values,
                                 load_relations: self.load_relations.[<load_ #relation_snakes _with>](with_fn),
+                            }
+                        }
+
+                        pub fn [<load_ #relation_snakes _where>]<NewWhereExpr: 'static>(
+                            self,
+                            where_expr: NewWhereExpr,
+                        ) -> #builder<
+                            Adaptor,
+                            LR::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]<NewWhereExpr>>,
+                        > {
+                            #builder {
+                                adaptor: self.adaptor,
+                                load_pre_sort_values: self.load_pre_sort_values,
+                                load_relations: self.load_relations.[<load_ #relation_snakes _where>](where_expr),
                             }
                         }
                     )*
@@ -2559,6 +2665,21 @@ pub mod shared {
                         }
                     }
 
+                    pub fn r#where<NewWhereExpr>(self, where_expr: NewWhereExpr) -> #builder<
+                        Adaptor,
+                        LR::WithWhere<NewWhereExpr>,
+                    > {
+                        #builder {
+                            load_relations: self.load_relations.r#where(where_expr),
+                            #( #other_fields: self.#other_fields, )*
+                        }
+                    }
+
+                    pub fn paginate(mut self, paginate: Paginate<LR::Cursor>) -> Self {
+                        self.load_relations = self.load_relations.paginate(paginate);
+                        self
+                    }
+
                     #(
                         pub fn [<load_ #relation_snakes>](self) -> #builder<
                             Adaptor,
@@ -2580,6 +2701,19 @@ pub mod shared {
                             #builder {
                                 #( #duped_other_fields: self.#duped_other_fields, )*
                                 load_relations: self.load_relations.[<load_ #relation_snakes _with>](with_fn),
+                            }
+                        }
+
+                        pub fn [<load_ #relation_snakes _where>]<NewWhereExpr: 'static>(
+                            self,
+                            where_expr: NewWhereExpr,
+                        ) -> #builder<
+                            Adaptor,
+                            LR::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]<NewWhereExpr>>,
+                        > {
+                            #builder {
+                                #( #duped_other_fields: self.#duped_other_fields, )*
+                                load_relations: self.load_relations.[<load_ #relation_snakes _where>](where_expr),
                             }
                         }
                     )*

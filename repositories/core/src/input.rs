@@ -51,7 +51,7 @@ pub struct RepositoryInput {
     pub idents: RepositoryIdents,
     pub key: KeyIdents,
     pub mutability: Mutability,
-    pub read_repositories: TokenStream2,
+    pub read_repositories: Ident,
     pub relations: Vec<RelationInput>,
     pub load_bys: Vec<LoadByInput>,
     pub syncability: Option<Syncability>,
@@ -222,14 +222,13 @@ impl Parse for RepositoriesInput {
         };
 
         let read_repositories = input
-            .tys()
-            .into_iter()
-            .map(|ty| format!("{}ReadRepository", ty))
-            .collect::<Vec<_>>()
-            .join(" + ");
+            .name
+            .as_ref()
+            .map(|name| format_ident!("{}ReadRepository", name))
+            .unwrap_or_else(|| format_ident!("ReadRepository"));
 
         for repository in input.repositories.iter_mut() {
-            repository.read_repositories = read_repositories.clone().parse().unwrap();
+            repository.read_repositories = read_repositories.clone();
         }
 
         Ok(input)
@@ -263,7 +262,7 @@ impl Parse for RepositoryInput {
             idents,
             mutability,
             syncability: None,
-            read_repositories: quote! {},
+            read_repositories: format_ident!("_"), // placeholder
             key: fields.key,
             load_bys: fields.load_by.unwrap_or(vec![]),
             relations: fields.relations.unwrap_or(vec![]),
@@ -408,7 +407,7 @@ impl RepositoryInput {
         self.syncability.as_ref().unwrap().sync_ptr()
     }
 
-    pub fn read_repositories(&self) -> &TokenStream2 {
+    pub fn read_repositories(&self) -> &Ident {
         &self.read_repositories
     }
 
