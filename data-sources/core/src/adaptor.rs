@@ -18,8 +18,6 @@ use syn::punctuated::Punctuated;
 use syn::token::Paren;
 use syn::{braced, parenthesized, Ident, LitStr, Token, Type};
 
-const PLACEHOLDER_KEY: &'static str = "_";
-
 #[derive(Clone)]
 pub struct AdaptorInput {
     pub path: LitStr,
@@ -38,7 +36,6 @@ pub struct AdaptorConfigInput {
 #[derive(Clone)]
 pub struct AdaptorEntityInput {
     ty: Ident,
-    key: Ident,
     namespace: Option<Ident>,
     children: Vec<ChildInput>,
     reverse_linked_children: Vec<ChildInput>,
@@ -165,13 +162,6 @@ impl Parse for AdaptorEntityInput {
         }
 
         Ok(AdaptorEntityInput {
-            key: format_ident!(
-                "{}",
-                fields
-                    .key
-                    .map(|key| key.value())
-                    .unwrap_or(String::from(PLACEHOLDER_KEY)),
-            ),
             namespace: fields.namespace,
             children,
             reverse_linked_children,
@@ -192,7 +182,6 @@ impl Parse for AdaptorEntityInput {
 fields! {
     AdaptorEntityInput {
         namespace?: input -> Ident { input.parse()? },
-        key?: input -> LitStr { input.parse()? },
         children?: input -> Vec<ChildInput> {
             let in_brace;
             braced!(in_brace in input);
