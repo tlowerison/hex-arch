@@ -7,8 +7,10 @@ extern crate cfg_if;
 #[macro_use]
 extern crate serde_with;
 
+mod interactors;
+
 pub use convert_case as interactors_convert_case;
-pub use paste::paste as interactors_paste;
+pub use interactors::*;
 pub use proc_macros::*;
 
 use diesel::result::Error as DieselError;
@@ -19,10 +21,8 @@ cfg_if! {
     if #[cfg(feature = "graphql")] {
         pub use juniper as interactors_juniper;
 
-        pub trait GraphQLLoad {
-            type Input;
-            type Output;
-            fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(Self::Input) -> Self::Output>;
+        pub trait GraphQLLoad<Input, Output> {
+            fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(Input) -> Output>;
         }
     }
 }
@@ -95,17 +95,17 @@ impl<E> From<EntityError> for InteractorError<E> {
     }
 }
 
-pub struct Context<Client, KeyValueClient> {
+pub struct InteractorContext<Client, KeyValueClient> {
     pub client: Client,
     pub key_value_client: KeyValueClient,
 }
 
-impl<Client, KeyValueClient> Context<Client, KeyValueClient> {
+impl<Client, KeyValueClient> InteractorContext<Client, KeyValueClient> {
     pub fn new(
         client: Client,
         key_value_client: KeyValueClient,
-    ) -> Context<Client, KeyValueClient> {
-        Context {
+    ) -> InteractorContext<Client, KeyValueClient> {
+        InteractorContext {
             client,
             key_value_client,
         }
@@ -114,8 +114,8 @@ impl<Client, KeyValueClient> Context<Client, KeyValueClient> {
     pub fn with<Q: Into<Client>, P: Into<KeyValueClient>>(
         q: Q,
         p: P,
-    ) -> Context<Client, KeyValueClient> {
-        Context {
+    ) -> InteractorContext<Client, KeyValueClient> {
+        InteractorContext {
             client: q.into(),
             key_value_client: p.into(),
         }
@@ -130,20 +130,20 @@ macro_rules! make_interactor {
         $(where $($trait_ty:ty: $trait_bound:ty),+)?
         {
             $(
-                pub fn $fn_name:ident$(<$($generic:ident: $trai:ty),+$(,)?>)?($($context:ident)+: Context$(, $($arg_name:ident)+: $arg_ty:ty)*$(,)?) -> Result<$ok_ty:ty, $err_ty:ty>
+                pub fn $fn_name:ident$(<$($generic:ident: $trai:ty),+$(,)?>)?($($context:ident)+: InteractorContext$(, $($arg_name:ident)+: $arg_ty:ty)*$(,)?) -> Result<$ok_ty:ty, $err_ty:ty>
                 $(where { $($tt:tt)* })?
                 $block:block
             )*
             $($rest:tt)*
         }
     ) => {
-        interactors_paste! {
+        hex_arch_paste! {
             impl<'a, $adaptor: 'a, $client> $interactor<$tt1, $tt2>
             $(where $($trait_ty: $trait_bound),+)?
             {
                 $(
                     pub fn $fn_name$(<$($generic: $trai),+>)?(
-                        $($context)+: Context<$client>
+                        $($context)+: InteractorContext<$client>
                         $(, $($arg_name)+: $arg_ty)*
                     ) -> Result<$ok_ty, $err_ty>
                     where

@@ -91,18 +91,16 @@ pub fn derive_graphql_load(tokens: TokenStream) -> TokenStream {
         .collect();
 
     let tokens = quote! {
-        interactors_paste! {
-            impl GraphQLLoad for #ident {
-                type Input = entities::[<DynLoad #ident Relations>];
-                type Output = entities::[<DynLoad #ident Relations>];
+        hex_arch_paste! {
+            impl GraphQLLoad<entities::[<DynLoad #ident Relations>], entities::[<DynLoad #ident Relations>]> for #ident {
 
-                fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(Self::Input) -> Self::Output> {
+                fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(entities::[<DynLoad #ident Relations>]) -> entities::[<DynLoad #ident Relations>]> {
                     use interactors_convert_case::Casing;
                     use interactors_juniper::LookAheadMethods;
 
                     #(
                         let mut [<load_in_ #field_entity_relation_snakes>]: Option<
-                            Box<dyn Send + Fn(<#field_inner_entity_tys as GraphQLLoad>::Input) -> <#field_inner_entity_tys as GraphQLLoad>::Output>
+                            Box<dyn Send + Fn(entities::[<DynLoad #field_inner_entity_tys Relations>]) -> entities::[<DynLoad #field_inner_entity_tys Relations>]>
                         > = None;
                     )*
                     for child in selection.children().iter() {
@@ -123,6 +121,38 @@ pub fn derive_graphql_load(tokens: TokenStream) -> TokenStream {
                     })
                 }
             }
+
+            impl GraphQLLoad<entities::[<StaticLoad #ident Relations>], entities::[<StaticDynLoad #ident Relations>]> for #ident {
+
+                fn load<'a, S: 'a>(selection: &juniper::LookAheadSelection<'a, S>) -> Box<dyn Send + Fn(entities::[<StaticLoad #ident Relations>]) -> entities::[<StaticDynLoad #ident Relations>]> {
+                    use interactors_convert_case::Casing;
+                    use interactors_juniper::LookAheadMethods;
+
+                    #(
+                        let mut [<load_in_ #field_entity_relation_snakes>]: Option<
+                            Box<dyn Send + Fn(entities::[<DynLoad #field_inner_entity_tys Relations>]) -> entities::[<DynLoad #field_inner_entity_tys Relations>]>
+                        > = None;
+                    )*
+                    for child in selection.children().iter() {
+                        match &*child.field_name().to_case(interactors_convert_case::Case::Snake) {
+                            #(
+                                #stringified_field_names => [<load_in_ #field_entity_relation_snakes>] = Some(#field_inner_entity_tys::load(child)),
+                            )*
+                            _ => {},
+                        }
+                    }
+                    Box::new(move |loader| {
+                        let mut loader = loader.as_static_dyn();
+                        #(
+                            if let Some([<load_in_ #field_entity_relation_snakes>]) = [<load_in_ #field_entity_relation_snakes>].as_ref() {
+                                loader = loader.[<load_ #field_entity_relation_snakes _with>](|_| [<load_in_ #field_entity_relation_snakes>](Default::default()));
+                            }
+                        )*
+                        loader
+                    })
+                }
+            }
+
         }
     };
 

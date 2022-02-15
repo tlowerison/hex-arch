@@ -269,7 +269,7 @@ pub mod read_repositories {
                     }
 
                     fn r#where<NewWhereExpr>(self, where_expr: NewWhereExpr) -> Self::WithWhere<NewWhereExpr> {
-                        let relations: [<StaticLoad #ty Relations>] = [<StaticLoad #ty Relations>]::default();
+                        let relations: [<StaticLoad #ty Relations>] = Default::default();
                         relations.r#where(where_expr)
                     }
 
@@ -277,7 +277,7 @@ pub mod read_repositories {
 
                     #(
                         fn [<load_ #relation_snakes>](self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]> {
-                            let relations: [<StaticLoad #ty Relations>] = [<StaticLoad #ty Relations>]::default();
+                            let relations: [<StaticLoad #ty Relations>] = Default::default();
                             relations.[<load_ #relation_snakes>]()
                         }
 
@@ -288,7 +288,7 @@ pub mod read_repositories {
                             [<StaticLoad #ty Relations>] {
                                 where_expr: None,
                                 paginate: None,
-                                #relation_snakes: with_fn([<StaticLoad #relation_tys Relations>]::default()),
+                                #relation_snakes: with_fn(Default::default()),
                                 #(#other_relation_snakes: [<UninitLoad #other_relation_tys Relations>]),*
                             }
                         }
@@ -297,7 +297,7 @@ pub mod read_repositories {
                             self,
                             where_expr: NewWhereExpr,
                         ) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]<NewWhereExpr>> {
-                            let relations: [<StaticLoad #ty Relations>] = [<StaticLoad #ty Relations>]::default();
+                            let relations: [<StaticLoad #ty Relations>] = Default::default();
                             relations.[<load_ #relation_snakes _where>](where_expr)
                         }
                     )*
@@ -322,13 +322,23 @@ pub mod read_repositories {
 
                 impl From<[<UninitLoad #ty Relations>]> for [<StaticLoad #ty Relations>] {
                     fn from(_: [<UninitLoad #ty Relations>]) -> [<StaticLoad #ty Relations>] {
-                        [<StaticLoad #ty Relations>]::default()
+                        Default::default()
                     }
                 }
 
                 impl From<()> for [<StaticLoad #ty Relations>] {
                     fn from(_: ()) -> [<StaticLoad #ty Relations>] {
-                        [<StaticLoad #ty Relations>]::default()
+                        Default::default()
+                    }
+                }
+
+                impl<WhereExpr, #([<Load #relation_pascals Relations>]: #load_mod::[<Load #relation_tys RelationsTrait>]),*> [<StaticLoad #ty Relations>]<WhereExpr, #([<Load #relation_pascals Relations>]),*> {
+                    pub fn as_static_dyn(self) -> [<StaticDynLoad #ty Relations>]<WhereExpr> {
+                        [<StaticLoad #ty Relations>] {
+                            paginate: self.paginate,
+                            where_expr: self.where_expr,
+                            #(#relation_snakes: self.#relation_snakes.as_dyn().unwrap(),)*
+                        }
                     }
                 }
 
@@ -407,7 +417,7 @@ pub mod read_repositories {
                             [<StaticLoad #ty Relations>] {
                                 paginate: self.paginate,
                                 where_expr: self.where_expr,
-                                #relation_snakes: [<StaticLoad #relation_tys Relations>]::default(),
+                                #relation_snakes: Default::default(),
                                 #(#other_relation_snakes: self.#other_relation_snakes),*
                             }
                         }
@@ -492,7 +502,7 @@ pub mod read_repositories {
 
                     #(
                         fn [<load_ #relation_snakes>](mut self) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]> {
-                            self.#relation_snakes = Some(Box::new([<DynLoad #relation_tys Relations>]::default()));
+                            self.#relation_snakes = Some(Box::new(Default::default()));
                             self
                         }
 
@@ -503,7 +513,7 @@ pub mod read_repositories {
                             self.#relation_snakes = with_fn(if let Some(sub_relations) = self.#relation_snakes {
                                 *sub_relations
                             } else {
-                                [<DynLoad #relation_tys Relations>]::default()
+                                Default::default()
                             }).as_dyn().map(Box::new);
                             self
                         }
@@ -512,11 +522,13 @@ pub mod read_repositories {
                             mut self,
                             _: NewWhereExpr,
                         ) -> Self::[<WithLoad #relation_pascals Relations>]<[<StaticLoad #relation_tys Relations>]<NewWhereExpr>> {
-                            self.#relation_snakes = Some(Box::new([<DynLoad #relation_tys Relations>]::default()));
+                            self.#relation_snakes = Some(Box::new(Default::default()));
                             self
                         }
                     )*
                 }
+
+                pub type [<StaticDynLoad #ty Relations>]<WhereExpr = ()> = [<StaticLoad #ty Relations>]<WhereExpr, #([<DynLoad #relation_tys Relations>]),*>;
             }
         }
     }
